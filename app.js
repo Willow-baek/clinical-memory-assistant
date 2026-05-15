@@ -135,6 +135,7 @@ let importLanes = {
   doctorChart: makeImportLane("doctorChart"),
 };
 let gptWindow = null;
+let isGptOpen = false;
 let learningDraft = {
   from: "",
   to: "",
@@ -3478,7 +3479,7 @@ async function copyExternalPrompt(promptId) {
 
 function openChatGPTWindow() {
   setChatGPTWorkflowOpen(true);
-  if (isGPTWindowOpen()) {
+  if (isGptOpen) {
     focusGPTWindow();
     toast("열려 있는 ChatGPT 창을 앞으로 가져왔습니다.");
     return;
@@ -3491,6 +3492,7 @@ function openChatGPTWindow() {
     `popup=yes,width=${geometry.width},height=${geometry.height},left=${geometry.left},top=${geometry.top},resizable=yes,scrollbars=yes`,
   );
   if (gptWindow) {
+    isGptOpen = true;
     focusGPTWindow();
     toast("ChatGPT 창을 열었습니다.");
   } else {
@@ -3508,28 +3510,25 @@ function getChatGPTPopupGeometry() {
   const width = Number.isFinite(configuredWidth) ? configuredWidth : 320;
   const screenLeft = window.screenX ?? window.screenLeft ?? 0;
   const screenTop = window.screenY ?? window.screenTop ?? 0;
-  const availLeft = window.screen.availLeft || 0;
-  const availTop = window.screen.availTop || 0;
-  const screenWidth = window.screen.availWidth || window.outerWidth || 1200;
-  const screenHeight = window.screen.availHeight || window.outerHeight || 900;
-  const left = Math.round(screenLeft);
+  const height = Math.round(window.outerHeight || window.screen.availHeight || 900);
+  let left = Math.round(screenLeft - width);
   const top = Math.round(screenTop);
-  const height = Math.min(Math.max(460, Math.round(window.outerHeight || screenHeight)), screenHeight);
+
+  if (left < 0) {
+    left = 0;
+    try {
+      window.moveTo(width, screenTop);
+    } catch {
+      // Some browsers ignore moving a tab that was not opened by script.
+    }
+  }
 
   return {
-    left: Math.min(Math.max(availLeft, left), Math.max(availLeft, availLeft + screenWidth - width)),
-    top: Math.min(Math.max(availTop, top), Math.max(availTop, availTop + screenHeight - height)),
+    left,
+    top,
     width,
     height,
   };
-}
-
-function isGPTWindowOpen() {
-  try {
-    return Boolean(gptWindow && !gptWindow.closed);
-  } catch {
-    return Boolean(gptWindow);
-  }
 }
 
 function focusGPTWindow() {
@@ -3543,7 +3542,7 @@ function focusGPTWindow() {
 }
 
 function handleFocusChatGPTWindow() {
-  if (isGPTWindowOpen()) {
+  if (isGptOpen) {
     focusGPTWindow();
     toast("ChatGPT 창을 앞으로 가져왔습니다.");
     return;
@@ -3551,11 +3550,13 @@ function handleFocusChatGPTWindow() {
 
   if (window.confirm("ChatGPT 창이 닫혀 있어요. 다시 열까요?")) {
     gptWindow = null;
+    isGptOpen = false;
     openChatGPTWindow();
   }
 }
 
 function closeChatGPTSidebar() {
+  isGptOpen = false;
   setChatGPTWorkflowOpen(false);
 }
 
