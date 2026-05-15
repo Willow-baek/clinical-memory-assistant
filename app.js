@@ -98,11 +98,43 @@ const DEFAULT_TERMS = [
   category,
 }));
 
+const SEED_APPOINTMENTS = [
+  {
+    id: "appt_seed_1",
+    recordKind: "appointment",
+    date: todayISO(),
+    time: "09:30",
+    patientId: "patient_seed_1",
+    patientName: "김OO",
+    patientNameText: "김OO",
+    patientCode: "P001",
+    chartNumber: "P001",
+    visitType: "재진",
+    note: "Rt knee / stair pain",
+    durationMinutes: 60,
+    sourceFile: "sample",
+    matchedVisitId: null,
+    status: "scheduled",
+    matchStatus: "unlinked",
+    needsReview: false,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+/*
+MVP data relationship:
+- patients: stable clinical identity. chartNumber/code should win over name when available.
+- appointments: tomorrow or future planned schedule. Used for briefing, can later link to a visit.
+- visits: actual treated/finalized day record. OCR schedule provides the time/name/duration spine.
+- rawInbox: unlinked transcript, OCR text, or external AI output waiting for user confirmation.
+- matchingCandidates: suggested links only. User confirmation writes patientId/appointmentId/visitId.
+*/
 const SEED_STATE = {
   patients: [
     {
       id: "patient_seed_1",
       code: "P001",
+      chartNumber: "P001",
       name: "김OO",
       sex: "F",
       age: "42",
@@ -111,20 +143,8 @@ const SEED_STATE = {
       createdAt: new Date().toISOString(),
     },
   ],
-  scheduleItems: [
-    {
-      id: "sch_seed_1",
-      date: todayISO(),
-      time: "09:30",
-      patientName: "김OO",
-      patientCode: "P001",
-      visitType: "재진",
-      note: "Rt knee / stair pain",
-      sourceFile: "sample",
-      matchedVisitId: null,
-      status: "scheduled",
-    },
-  ],
+  appointments: SEED_APPOINTMENTS,
+  scheduleItems: SEED_APPOINTMENTS,
   rawInbox: [
     {
       id: "inbox_seed_1",
@@ -144,8 +164,12 @@ const SEED_STATE = {
     },
   ],
   visits: [],
+  matchingCandidates: [],
   terms: DEFAULT_TERMS,
   correctionHistory: [],
+  ui: {
+    calendarViewMode: "split",
+  },
   settings: {
     supabaseUrl: DEFAULT_SUPABASE_URL,
     supabaseAnonKey: DEFAULT_SUPABASE_ANON_KEY,
@@ -167,7 +191,8 @@ let currentView = "dashboard";
 let selectedPatientId = state.patients[0]?.id || null;
 let selectedVisitId = null;
 let dashboardWeekStart = getWeekStartISO(todayISO());
-let selectedScheduleId = state.scheduleItems[0]?.id || null;
+let selectedCalendarKind = getAppointments()[0]?.id ? "appointment" : "visit";
+let selectedScheduleId = getAppointments()[0]?.id || state.visits[0]?.id || null;
 let importLanes = {
   todaySchedule: makeImportLane("todaySchedule"),
   tomorrowSchedule: makeImportLane("tomorrowSchedule"),
@@ -185,15 +210,17 @@ function makeImportLane(key) {
   const defaults = {
     todaySchedule: {
       kind: "schedule",
-      title: "당일 스케줄",
+      targetRecordType: "visit",
+      title: "당일 Visit 확정",
       date: todayISO(),
       therapist: "백한솔",
       patientHint: "",
-      sourceFile: "smart crm today schedule",
+      sourceFile: "smart crm today final schedule",
     },
     tomorrowSchedule: {
       kind: "schedule",
-      title: "내일 스케줄",
+      targetRecordType: "appointment",
+      title: "내일 Appointment",
       date: addDays(todayISO(), 1),
       therapist: "백한솔",
       patientHint: "",
@@ -230,18 +257,114 @@ function loadState() {
   }
 }
 
-function ensureStateShape(loaded) {
+function ensureStateShape(loaded = {}) {
+  const incomingAppointments = loaded.appointments || loaded.scheduleItems || SEED_STATE.appointments;
   const next = {
     ...structuredClone(SEED_STATE),
     ...loaded,
+    patients: (loaded.patients || SEED_STATE.patients).map(normalizePatientRecord),
+    appointments: incomingAppointments.map(normalizeAppointmentRecord),
+    visits: (loaded.visits || []).map(normalizeVisitRecord),
+    rawInbox: (loaded.rawInbox || SEED_STATE.rawInbox).map(normalizeRawInboxRecord),
+    matchingCandidates: loaded.matchingCandidates || [],
+    ui: {
+      ...SEED_STATE.ui,
+      ...(loaded.ui || {}),
+    },
     settings: {
       ...SEED_STATE.settings,
       ...(loaded.settings || {}),
     },
   };
+  next.scheduleItems = next.appointments;
   if (!next.settings.supabaseUrl) next.settings.supabaseUrl = DEFAULT_SUPABASE_URL;
   if (!next.settings.supabaseAnonKey) next.settings.supabaseAnonKey = DEFAULT_SUPABASE_ANON_KEY;
   return next;
+}
+
+function normalizePatientRecord(patient) {
+  const code = patient.code || patient.chartNumber || "";
+  return {
+    ...patient,
+    code,
+    chartNumber: patient.chartNumber || code,
+    name: patient.name || "이름 미상",
+  };
+}
+
+function normalizeAppointmentRecord(item) {
+  const patientName = item.patientName || item.patientNameText || "";
+  const chartNumber = item.chartNumber || item.patientCode || "";
+  return {
+    ...item,
+    id: item.id || uid("appt"),
+    recordKind: "appointment",
+    patientId: item.patientId || null,
+    patientName,
+    patientNameText: item.patientNameText || patientName,
+    patientCode: item.patientCode || chartNumber,
+    chartNumber,
+    durationMinutes: normalizeTreatmentMinutes(item.durationMinutes || item.note || ""),
+    matchStatus: item.matchStatus || (item.matchedVisitId ? "confirmed" : "unlinked"),
+    needsReview: Boolean(item.needsReview),
+    status: item.status || "scheduled",
+    createdAt: item.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeVisitRecord(visit) {
+  const patientNameText = visit.patientNameText || visit.patientName || "";
+  return {
+    ...visit,
+    id: visit.id || uid("visit"),
+    recordKind: "visit",
+    patientId: visit.patientId || null,
+    patientNameText,
+    appointmentId: visit.appointmentId || null,
+    durationMinutes: normalizeTreatmentMinutes(visit.durationMinutes || visit.note || ""),
+    transcriptInboxIds: Array.isArray(visit.transcriptInboxIds)
+      ? visit.transcriptInboxIds
+      : visit.sourceInboxId
+        ? [visit.sourceInboxId]
+        : [],
+    signals: Array.isArray(visit.signals) ? visit.signals : [],
+    secondarySignals: Array.isArray(visit.secondarySignals) ? visit.secondarySignals : [],
+    tracking: Array.isArray(visit.tracking) ? visit.tracking : [],
+    matchStatus: visit.matchStatus || (visit.sourceInboxId ? "confirmed" : "unlinked"),
+    needsReview: Boolean(visit.needsReview),
+    createdAt: visit.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeRawInboxRecord(item) {
+  return {
+    ...item,
+    patientId: item.patientId || null,
+    appointmentId: item.appointmentId || null,
+    matchedVisitId: item.matchedVisitId || item.visitId || null,
+    matchStatus: item.matchStatus || (item.matchedVisitId ? "confirmed" : "suggested"),
+  };
+}
+
+function getAppointments() {
+  if (!Array.isArray(state?.appointments)) state.appointments = [];
+  return state.appointments;
+}
+
+function setAppointments(items) {
+  state.appointments = items.map(normalizeAppointmentRecord);
+  state.scheduleItems = state.appointments;
+}
+
+function getCalendarViewMode() {
+  return state.ui?.calendarViewMode || "split";
+}
+
+function setCalendarViewMode(mode) {
+  state.ui = {
+    ...(state.ui || {}),
+    calendarViewMode: ["appointments", "visits", "split"].includes(mode) ? mode : "split",
+  };
 }
 
 function saveState(options = {}) {
@@ -553,7 +676,13 @@ function parseSmartCrmScheduleText(text, date, therapistName = "백한솔", sour
     .map(scheduleCandidateToItem);
 }
 
-function parseSmartCrmScheduleCandidates(text, date, therapistName = "백한솔", sourceFile = "smart crm paste") {
+function parseSmartCrmScheduleCandidates(
+  text,
+  date,
+  therapistName = "백한솔",
+  sourceFile = "smart crm paste",
+  targetRecordType = "appointment",
+) {
   const normalizedText = normalizeSmartCrmOcrText(text || "");
   const lines = normalizedText
     .replace(/\r/g, "\n")
@@ -563,11 +692,11 @@ function parseSmartCrmScheduleCandidates(text, date, therapistName = "백한솔"
 
   const segments = splitSmartCrmAppointmentSegments(lines.join("\n"));
   return segments
-    .map((segment) => parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile))
+    .map((segment) => parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile, targetRecordType))
     .filter(Boolean);
 }
 
-function parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile) {
+function parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile, targetRecordType = "appointment") {
   const time = normalizeKoreanTime(segment.timeText);
   if (!time) return null;
   if (/예약\s*취소|예약취소|\[?\s*상태\s*[:：]?\s*취소|취소/.test(segment.text)) return null;
@@ -581,6 +710,7 @@ function parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile
   return {
     id: uid("schedcand"),
     type: "schedule_candidate",
+    targetRecordType,
     fileName: "schedule candidate",
     createdAt: new Date().toISOString(),
     recordedDate: date,
@@ -589,6 +719,7 @@ function parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile
     durationMinutes: treatment.minutes || "",
     sourceFile,
     status: "new",
+    matchStatus: "suggested",
     needsReview: reviewReasons.length > 0,
     reviewReason: reviewReasons.join(", "),
   };
@@ -596,17 +727,21 @@ function parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile
 
 function scheduleCandidateToItem(candidate) {
   return {
-    id: uid("sch"),
+    id: uid("appt"),
+    recordKind: "appointment",
     date: candidate.recordedDate || todayISO(),
     time: candidate.recordedTime,
     patientName: candidate.patientHint,
+    patientNameText: candidate.patientHint,
     patientCode: "",
+    chartNumber: "",
     visitType: "재진",
     note: candidate.durationMinutes ? `${candidate.durationMinutes}분` : "",
     durationMinutes: candidate.durationMinutes || "",
     sourceFile: candidate.sourceFile || "schedule candidate",
     matchedVisitId: null,
     status: "scheduled",
+    matchStatus: "unlinked",
   };
 }
 
@@ -785,19 +920,112 @@ function parseTranscriptMeta(text, fileName, recordedDate, recordedTime) {
 function findPatientByNameOrCode(name, code) {
   const normalizedName = (name || "").trim();
   const normalizedCode = (code || "").trim();
-  return state.patients.find((patient) => {
-    return (
-      (normalizedCode && patient.code === normalizedCode) ||
-      (normalizedName && patient.name === normalizedName)
-    );
-  });
+  if (normalizedCode) {
+    const byCode = state.patients.find((patient) => {
+      return patient.code === normalizedCode || patient.chartNumber === normalizedCode;
+    });
+    if (byCode) return byCode;
+  }
+  if (!normalizedName) return null;
+  const byName = state.patients.filter((patient) => patient.name === normalizedName);
+  return byName.length === 1 ? byName[0] : null;
 }
 
-function findBestScheduleForInbox(inbox) {
+function findPatientMatches(name, code) {
+  const normalizedName = (name || "").trim();
+  const normalizedCode = (code || "").trim();
+  if (normalizedCode) {
+    const byCode = state.patients.filter((patient) => {
+      return patient.code === normalizedCode || patient.chartNumber === normalizedCode;
+    });
+    if (byCode.length) return byCode;
+  }
+  if (!normalizedName) return [];
+  return state.patients.filter((patient) => patient.name === normalizedName);
+}
+
+function makeTemporaryPatient(name, chartNumber = "") {
+  const nextNumber = String(state.patients.length + 1).padStart(3, "0");
+  const code = chartNumber || `P${nextNumber}`;
+  const patient = {
+    id: uid("patient"),
+    code,
+    chartNumber: code,
+    name: name || "이름 미상",
+    sex: "",
+    age: "",
+    region: "",
+    flags: "임시 등록",
+    createdAt: new Date().toISOString(),
+  };
+  state.patients.push(patient);
+  return patient;
+}
+
+function resolvePatientLink(name, code = "", options = {}) {
+  const matches = findPatientMatches(name, code);
+  if (matches.length === 1) {
+    return { patient: matches[0], needsReview: false, reason: "" };
+  }
+  if (matches.length > 1) {
+    return { patient: null, needsReview: true, reason: "동명이인 확인 필요" };
+  }
+  if (options.createIfMissing) {
+    return { patient: makeTemporaryPatient(name, code), needsReview: false, reason: "임시 환자 생성" };
+  }
+  return { patient: null, needsReview: true, reason: "환자 연결 필요" };
+}
+
+function normalizeNameForMatch(value) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/님$/g, "")
+    .trim();
+}
+
+function getVisitPatient(visit) {
+  return state.patients.find((patient) => patient.id === visit.patientId) || null;
+}
+
+function getVisitPatientName(visit) {
+  return getVisitPatient(visit)?.name || visit.patientNameText || "환자 확인";
+}
+
+function getAppointmentPatient(appointment) {
+  return (
+    state.patients.find((patient) => patient.id === appointment.patientId) ||
+    findPatientByNameOrCode(appointment.patientName || appointment.patientNameText, appointment.chartNumber || appointment.patientCode)
+  );
+}
+
+function findBestVisitForInbox(inbox) {
   const inboxMinutes = minutesOf(inbox.recordedTime);
   if (inboxMinutes === null) return null;
 
-  const sameDate = state.scheduleItems.filter((item) => {
+  const sameDate = state.visits.filter((item) => item.date === inbox.recordedDate);
+
+  let best = null;
+  for (const item of sameDate) {
+    const itemMinutes = minutesOf(item.time);
+    if (itemMinutes === null) continue;
+    const delta = Math.abs(itemMinutes - inboxMinutes);
+    const patientName = getVisitPatientName(item);
+    const nameScore =
+      inbox.patientHint && patientName.includes(inbox.patientHint.replace("OO", ""))
+        ? 25
+        : 0;
+    const typeScore = inbox.visitType === item.visitType ? 10 : 0;
+    const score = Math.min(100, Math.max(0, 100 - delta * 2 + nameScore + typeScore));
+    if (!best || score > best.score) best = { item, score, delta, kind: "visit" };
+  }
+  return best;
+}
+
+function findBestAppointmentForInbox(inbox) {
+  const inboxMinutes = minutesOf(inbox.recordedTime);
+  if (inboxMinutes === null) return null;
+
+  const sameDate = getAppointments().filter((item) => {
     return item.date === inbox.recordedDate && !item.matchedVisitId;
   });
 
@@ -807,14 +1035,22 @@ function findBestScheduleForInbox(inbox) {
     if (itemMinutes === null) continue;
     const delta = Math.abs(itemMinutes - inboxMinutes);
     const nameScore =
-      inbox.patientHint && item.patientName.includes(inbox.patientHint.replace("OO", ""))
+      inbox.patientHint && (item.patientName || "").includes(inbox.patientHint.replace("OO", ""))
         ? 25
         : 0;
     const typeScore = inbox.visitType === item.visitType ? 10 : 0;
-    const score = Math.min(100, Math.max(0, 100 - delta * 2 + nameScore + typeScore));
-    if (!best || score > best.score) best = { item, score, delta };
+    const score = Math.min(100, Math.max(0, 90 - delta * 2 + nameScore + typeScore));
+    if (!best || score > best.score) best = { item, score, delta, kind: "appointment" };
   }
   return best;
+}
+
+function findBestRecordForInbox(inbox) {
+  return findBestVisitForInbox(inbox) || findBestAppointmentForInbox(inbox);
+}
+
+function findBestScheduleForInbox(inbox) {
+  return findBestRecordForInbox(inbox);
 }
 
 function createVisitFromInbox(inboxId, scheduleId = null) {
@@ -822,33 +1058,26 @@ function createVisitFromInbox(inboxId, scheduleId = null) {
   if (!inbox) return;
 
   const schedule = scheduleId
-    ? state.scheduleItems.find((item) => item.id === scheduleId)
-    : findBestScheduleForInbox(inbox)?.item;
+    ? getAppointments().find((item) => item.id === scheduleId)
+    : findBestAppointmentForInbox(inbox)?.item;
 
-  let patient = findPatientByNameOrCode(schedule?.patientName || inbox.patientHint, schedule?.patientCode);
-  if (!patient) {
-    const nextNumber = String(state.patients.length + 1).padStart(3, "0");
-    patient = {
-      id: uid("patient"),
-      code: `P${nextNumber}`,
-      name: schedule?.patientName || inbox.patientHint || "신규 환자",
-      sex: "",
-      age: "",
-      region: schedule?.note || "",
-      flags: "",
-      createdAt: new Date().toISOString(),
-    };
-    state.patients.push(patient);
-  }
+  const patientLink = resolvePatientLink(schedule?.patientName || inbox.patientHint, schedule?.patientCode, {
+    createIfMissing: true,
+  });
+  const patient = patientLink.patient;
 
   const text = inbox.correctedText || inbox.text || "";
   const visit = {
     id: uid("visit"),
-    patientId: patient.id,
+    patientId: patient?.id || null,
+    patientNameText: schedule?.patientName || inbox.patientHint || "신규 환자",
+    appointmentId: schedule?.id || null,
     date: inbox.recordedDate || schedule?.date || todayISO(),
     time: inbox.recordedTime || schedule?.time || nowTime(),
     visitType: schedule?.visitType || inbox.visitType || "재진",
+    durationMinutes: schedule?.durationMinutes || "",
     sourceInboxId: inbox.id,
+    transcriptInboxIds: [inbox.id],
     transcript: text,
     signals: extractSignals(text).signals,
     secondarySignals: extractSignals(text).secondary,
@@ -860,10 +1089,13 @@ function createVisitFromInbox(inboxId, scheduleId = null) {
     nextFocus: extractSection(text, ["다음", "확인", "progression"]),
     draft: "",
     confirmed: false,
+    matchStatus: "confirmed",
+    needsReview: patientLink.needsReview,
+    reviewReason: patientLink.reason || "",
     summary: summarizeTranscript(text),
     createdAt: new Date().toISOString(),
   };
-  visit.draft = generateDraft(visit, patient);
+  visit.draft = generateDraft(visit, patient || { name: visit.patientNameText, code: "" });
 
   state.visits.unshift(visit);
   inbox.status = "matched";
@@ -871,16 +1103,57 @@ function createVisitFromInbox(inboxId, scheduleId = null) {
   if (schedule) {
     schedule.matchedVisitId = visit.id;
     schedule.status = "matched";
-    if (!schedule.patientCode) schedule.patientCode = patient.code;
+    schedule.matchStatus = "confirmed";
+    if (patient && !schedule.patientCode) schedule.patientCode = patient.code;
   }
   if (inbox.cloudId) {
     updateSupabaseInboxStatus(inbox.cloudId, "matched");
   }
-  selectedPatientId = patient.id;
+  if (patient) selectedPatientId = patient.id;
   selectedVisitId = visit.id;
   saveState();
   toast("방문 기록과 차트 초안을 만들었습니다.");
   setView("visits");
+}
+
+function linkTranscriptToVisit(inboxId, visitId) {
+  const inbox = state.rawInbox.find((entry) => entry.id === inboxId);
+  const visit = state.visits.find((entry) => entry.id === visitId);
+  if (!inbox || !visit) return;
+
+  const text = inbox.correctedText || inbox.text || inbox.ocrText || "";
+  const patient = getVisitPatient(visit) || { name: visit.patientNameText || inbox.patientHint || "환자 확인", code: "" };
+  const transcriptIds = new Set(visit.transcriptInboxIds || []);
+  transcriptIds.add(inbox.id);
+
+  visit.sourceInboxId = visit.sourceInboxId || inbox.id;
+  visit.transcriptInboxIds = [...transcriptIds];
+  visit.transcript = [visit.transcript, text].filter(Boolean).join("\n\n");
+  if (!visit.summary || /기록 대기|summary 없음/.test(visit.summary)) visit.summary = summarizeTranscript(text);
+  if (!visit.signals?.length) visit.signals = extractSignals(text).signals;
+  if (!visit.secondarySignals?.length) visit.secondarySignals = extractSignals(text).secondary;
+  if (!visit.tracking?.length) visit.tracking = inferTracking(text);
+  if (!visit.treatment) visit.treatment = extractSection(text, ["오늘", "치료", "진행"]);
+  if (!visit.hep) visit.hep = extractSection(text, ["HEP", "숙제", "운동"]);
+  if (!visit.homework) visit.homework = extractSection(text, ["숙제", "HEP", "다음"]);
+  if (!visit.nextFocus) visit.nextFocus = extractSection(text, ["다음", "확인", "progression"]);
+  if (!visit.draft) visit.draft = generateDraft(visit, patient);
+  visit.matchStatus = "confirmed";
+
+  inbox.status = "matched";
+  inbox.matchedVisitId = visit.id;
+  inbox.visitId = visit.id;
+  inbox.patientId = visit.patientId || null;
+  inbox.matchStatus = "confirmed";
+  if (inbox.cloudId) updateSupabaseInboxStatus(inbox.cloudId, "matched");
+
+  selectedCalendarKind = "visit";
+  selectedScheduleId = visit.id;
+  selectedVisitId = visit.id;
+  if (visit.patientId) selectedPatientId = visit.patientId;
+  saveState();
+  toast("Transcript를 Visit에 연결했습니다.");
+  render();
 }
 
 function readScheduleCandidateInputs(id) {
@@ -916,24 +1189,46 @@ function confirmScheduleCandidate(id) {
   candidate.patientHint = values.patientName;
   candidate.durationMinutes = values.durationMinutes;
 
+  if (candidate.targetRecordType === "visit") {
+    const visit = upsertVisitFromScheduleCandidate(candidate);
+    candidate.status = "imported";
+    candidate.needsReview = false;
+    candidate.matchedVisitId = visit.id;
+    selectedCalendarKind = "visit";
+    selectedScheduleId = visit.id;
+    selectedVisitId = visit.id;
+    dashboardWeekStart = getWeekStartISO(visit.date);
+    saveState();
+    toast(`${visit.time} ${getVisitPatientName(visit)} Visit 후보를 확정했습니다.`);
+    render();
+    return;
+  }
+
   const scheduleItem = scheduleCandidateToItem(candidate);
-  state.scheduleItems = [
+  const patientLink = resolvePatientLink(scheduleItem.patientName, scheduleItem.patientCode, { createIfMissing: false });
+  scheduleItem.patientId = patientLink.patient?.id || null;
+  scheduleItem.needsReview = patientLink.needsReview && patientLink.reason === "동명이인 확인 필요";
+  scheduleItem.reviewReason = scheduleItem.needsReview ? patientLink.reason : "";
+  setAppointments([
     scheduleItem,
-    ...state.scheduleItems.filter((item) => {
+    ...getAppointments().filter((item) => {
       return !(
         item.date === scheduleItem.date &&
         item.time === scheduleItem.time &&
         item.sourceFile === scheduleItem.sourceFile
       );
     }),
-  ];
+  ]);
   candidate.status = "imported";
   candidate.needsReview = false;
   candidate.matchedScheduleId = scheduleItem.id;
+  candidate.appointmentId = scheduleItem.id;
+  candidate.matchStatus = "confirmed";
+  selectedCalendarKind = "appointment";
   selectedScheduleId = scheduleItem.id;
   dashboardWeekStart = getWeekStartISO(scheduleItem.date);
   saveState();
-  toast(`${scheduleItem.time} ${scheduleItem.patientName} 스케줄을 반영했습니다.`);
+  toast(`${scheduleItem.time} ${scheduleItem.patientName} Appointment를 저장했습니다.`);
   render();
 }
 
@@ -944,6 +1239,93 @@ function discardScheduleCandidate(id) {
   saveState();
   toast("스케줄 후보를 폐기했습니다.");
   render();
+}
+
+function upsertVisitFromScheduleCandidate(candidate) {
+  const patientName = candidate.patientHint || "환자 확인";
+  const patientLink = resolvePatientLink(patientName, candidate.chartNumber || "", { createIfMissing: true });
+  const appointment = findAppointmentForVisitCandidate(candidate, patientLink.patient);
+  const existing = findExistingVisitForScheduleCandidate(candidate, patientLink.patient);
+  const baseVisit = existing || {};
+  const patientId = patientLink.needsReview && !patientLink.patient ? null : patientLink.patient?.id || baseVisit.patientId || null;
+  const needsReview = Boolean(patientLink.needsReview && patientLink.reason === "동명이인 확인 필요");
+
+  const visit = normalizeVisitRecord({
+    ...baseVisit,
+    id: baseVisit.id || uid("visit"),
+    recordKind: "visit",
+    patientId,
+    patientNameText: patientName,
+    appointmentId: appointment?.id || baseVisit.appointmentId || null,
+    date: candidate.recordedDate || todayISO(),
+    time: candidate.recordedTime || nowTime(),
+    visitType: candidate.visitType || baseVisit.visitType || "재진",
+    durationMinutes: candidate.durationMinutes || baseVisit.durationMinutes || "",
+    sourceFile: candidate.sourceFile || baseVisit.sourceFile || "daily visit schedule",
+    recordSource: "daily_ocr",
+    summary: baseVisit.summary || `${patientName} ${candidate.durationMinutes || "?"}분 치료 기록 대기`,
+    transcript: baseVisit.transcript || "",
+    signals: baseVisit.signals || [],
+    secondarySignals: baseVisit.secondarySignals || [],
+    noise: baseVisit.noise || "",
+    tracking: baseVisit.tracking || [],
+    treatment: baseVisit.treatment || "",
+    hep: baseVisit.hep || "",
+    homework: baseVisit.homework || "",
+    nextFocus: baseVisit.nextFocus || "",
+    draft: baseVisit.draft || "",
+    confirmed: Boolean(baseVisit.confirmed),
+    matchStatus: "confirmed",
+    needsReview,
+    reviewReason: needsReview ? patientLink.reason : baseVisit.reviewReason || "",
+    createdAt: baseVisit.createdAt || new Date().toISOString(),
+  });
+
+  state.visits = [
+    visit,
+    ...state.visits.filter((item) => item.id !== visit.id),
+  ].sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+
+  if (appointment) {
+    appointment.matchedVisitId = visit.id;
+    appointment.status = "matched";
+    appointment.matchStatus = "confirmed";
+  }
+
+  candidate.matchStatus = "confirmed";
+  candidate.patientId = patientId;
+  candidate.appointmentId = appointment?.id || null;
+  return visit;
+}
+
+function findAppointmentForVisitCandidate(candidate, patient) {
+  const targetMinutes = minutesOf(candidate.recordedTime);
+  return getAppointments().find((appointment) => {
+    if (appointment.date !== candidate.recordedDate) return false;
+    const samePatient =
+      (patient?.id && appointment.patientId === patient.id) ||
+      normalizeNameForMatch(appointment.patientName || appointment.patientNameText) ===
+        normalizeNameForMatch(candidate.patientHint);
+    if (!samePatient) return false;
+    const appointmentMinutes = minutesOf(appointment.time);
+    if (targetMinutes === null || appointmentMinutes === null) return appointment.time === candidate.recordedTime;
+    return Math.abs(appointmentMinutes - targetMinutes) <= 15;
+  });
+}
+
+function findExistingVisitForScheduleCandidate(candidate, patient) {
+  const targetMinutes = minutesOf(candidate.recordedTime);
+  return state.visits.find((visit) => {
+    if (visit.date !== candidate.recordedDate) return false;
+    const visitMinutes = minutesOf(visit.time);
+    const timeClose =
+      targetMinutes !== null && visitMinutes !== null
+        ? Math.abs(visitMinutes - targetMinutes) <= 10
+        : visit.time === candidate.recordedTime;
+    if (!timeClose) return false;
+    if (patient?.id && visit.patientId === patient.id) return true;
+    return normalizeNameForMatch(getVisitPatientName(visit)) === normalizeNameForMatch(candidate.patientHint);
+  });
 }
 
 function createInitialVisitFromDoctorChart(id) {
@@ -958,12 +1340,22 @@ function createInitialVisitFromDoctorChart(id) {
   }
 
   const text = item.ocrText || item.text || "";
+  const patientMatches = findPatientMatches(patientQuery, patientQuery);
+  if (patientMatches.length > 1) {
+    item.needsReview = true;
+    item.reviewReason = "동명이인 확인 필요";
+    saveState();
+    toast("동명이인이 있습니다. 차트번호/코드로 다시 입력해 주세요.");
+    render();
+    return;
+  }
   let patient = findPatientByNameOrCode(patientQuery, patientQuery);
   if (!patient) {
     const nextNumber = String(state.patients.length + 1).padStart(3, "0");
     patient = {
       id: uid("patient"),
       code: patientQuery.startsWith("P") ? patientQuery : `P${nextNumber}`,
+      chartNumber: patientQuery.startsWith("P") ? patientQuery : `P${nextNumber}`,
       name: patientQuery.startsWith("P") ? extractStructuredValue(text, ["patient_name"]) || "신규 환자" : patientQuery,
       sex: "",
       age: "",
@@ -983,6 +1375,7 @@ function createInitialVisitFromDoctorChart(id) {
   item.patientHint = patient.name;
   item.patientId = patient.id;
   item.matchedVisitId = visit.id;
+  item.matchStatus = "confirmed";
   selectedPatientId = patient.id;
   selectedVisitId = visit.id;
   saveState();
@@ -1017,10 +1410,13 @@ function buildInitialVisitFromDoctorChart(item, patient, date) {
   const visit = {
     id: uid("visit"),
     patientId: patient.id,
+    patientNameText: patient.name,
     date,
     time: nowTime(),
     visitType: "초진",
     sourceInboxId: item.id,
+    transcriptInboxIds: [item.id],
+    recordSource: "doctor_chart",
     transcript: text,
     signals: signalList.length ? signalList : extractSignals(text).signals,
     secondarySignals: secondaryList,
@@ -1032,6 +1428,7 @@ function buildInitialVisitFromDoctorChart(item, patient, date) {
     nextFocus: [aggravating, easing, medical, precautions].filter(Boolean).join(" / "),
     draft: "",
     confirmed: false,
+    matchStatus: "confirmed",
     summary,
     createdAt: new Date().toISOString(),
   };
@@ -1139,15 +1536,16 @@ function summarizeTranscript(text) {
 }
 
 function generateDraft(visit, patient) {
-  const tracking = visit.tracking.map((item) => `${item.name}: ${item.value}`).join("; ");
-  const signals = visit.signals.join(", ") || "key symptom and movement response checked";
+  const patientLabel = patient?.code || patient?.chartNumber || visit.patientNameText || "patient";
+  const tracking = (visit.tracking || []).map((item) => `${item.name}: ${item.value}`).join("; ");
+  const signals = (visit.signals || []).join(", ") || "key symptom and movement response checked";
   const treatment = visit.treatment || "manual therapy / exercise intervention performed as tolerated";
   const hep = visit.homework || visit.hep || "HEP reviewed and adjusted";
   const next = visit.nextFocus || "reassess tracking variables next visit";
 
   if (visit.visitType === "초진") {
     return [
-      `[${patient.code}] Initial PT note`,
+      `[${patientLabel}] Initial PT note`,
       `S: ${visit.summary || "Initial interview completed."}`,
       `O: Key signals - ${signals}. Tracking variables - ${tracking || "to be established"}.`,
       `A: Candidate hypothesis to confirm: load tolerance / motor control / movement compensation pattern.`,
@@ -1156,7 +1554,7 @@ function generateDraft(visit, patient) {
   }
 
   return [
-    `[${patient.code}] Follow-up PT note`,
+    `[${patientLabel}] Follow-up PT note`,
     `S: ${visit.summary || "Follow-up status checked."}`,
     `O: Tracking - ${tracking || "no structured tracking update captured"}.`,
     `A: ${signals}. Response monitored; progression adjusted based on symptom and movement quality.`,
@@ -1179,15 +1577,31 @@ function renderDashboard(query = "") {
   const container = document.getElementById("dashboardView");
   const today = todayISO();
   const weekDates = getWeekDates(dashboardWeekStart);
-  const scheduleWeek = state.scheduleItems
+  const appointmentsWeek = getAppointments()
     .filter((item) => weekDates.includes(item.date))
     .filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query))
     .sort((a, b) => a.time.localeCompare(b.time));
-  const scheduleToday = scheduleWeek.filter((item) => item.date === today);
+  const visitsWeek = state.visits
+    .filter((visit) => weekDates.includes(visit.date))
+    .filter((visit) => !query || JSON.stringify(visit).toLowerCase().includes(query))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  const calendarMode = getCalendarViewMode();
   const inbox = state.rawInbox.filter((item) => item.status === "new");
-  const visitsToday = state.visits.filter((visit) => visit.date === today);
-  const selectedSchedule = scheduleWeek.find((item) => item.id === selectedScheduleId) || scheduleWeek[0] || null;
-  if (selectedSchedule) selectedScheduleId = selectedSchedule.id;
+  const selectedInWeek =
+    selectedCalendarKind === "visit"
+      ? visitsWeek.find((item) => item.id === selectedScheduleId)
+      : appointmentsWeek.find((item) => item.id === selectedScheduleId);
+  const existingSelected = selectedInWeek ? { kind: selectedCalendarKind, item: selectedInWeek } : null;
+  const firstRecord = visitsWeek[0]
+    ? { kind: "visit", item: visitsWeek[0] }
+    : appointmentsWeek[0]
+      ? { kind: "appointment", item: appointmentsWeek[0] }
+      : null;
+  const selectedRecord = existingSelected || firstRecord;
+  if (selectedRecord?.item) {
+    selectedCalendarKind = selectedRecord.kind;
+    selectedScheduleId = selectedRecord.item.id;
+  }
 
   container.innerHTML = `
     ${renderWorkflowImportLanes()}
@@ -1195,22 +1609,29 @@ function renderDashboard(query = "") {
       <section class="panel weekly-panel">
         <div class="panel-header">
           <div>
-            <h2>주간 예약</h2>
-            <p class="note">${formatWeekRange(weekDates)} · 오전 9시부터 오후 10시</p>
+            <h2>주간 스케줄</h2>
+            <p class="note">${formatWeekRange(weekDates)} · Appointment는 예정, Visit은 실제 치료/마감 기록</p>
           </div>
-          <div class="row wrap">
-            <button class="small-button" data-action="prev-week">이전 주</button>
-            <button class="small-button" data-action="this-week">이번 주</button>
-            <button class="small-button" data-action="next-week">다음 주</button>
+          <div class="calendar-toolbar">
+            <div class="segmented-control">
+              ${renderCalendarModeButton("appointments", "Appointment", calendarMode)}
+              ${renderCalendarModeButton("visits", "Visit", calendarMode)}
+              ${renderCalendarModeButton("split", "Split", calendarMode)}
+            </div>
+            <div class="row wrap">
+              <button class="small-button" data-action="prev-week">이전 주</button>
+              <button class="small-button" data-action="this-week">이번 주</button>
+              <button class="small-button" data-action="next-week">다음 주</button>
+            </div>
           </div>
         </div>
         <div class="panel-body">
-          ${renderWeeklyCalendar(weekDates, scheduleWeek)}
+          ${renderWeeklyCalendar(weekDates, appointmentsWeek, visitsWeek, calendarMode)}
         </div>
       </section>
 
       <div class="dashboard-side">
-        ${renderScheduleHistoryPanel(selectedSchedule)}
+        ${renderScheduleHistoryPanel(selectedRecord?.item || null, selectedRecord?.kind || "appointment")}
         <section class="panel">
           <div class="panel-header">
             <h2>매칭 대기</h2>
@@ -1233,6 +1654,20 @@ function renderDashboard(query = "") {
 
 function metric(value, label) {
   return `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`;
+}
+
+function renderCalendarModeButton(mode, label, activeMode) {
+  return `<button class="segmented-button ${mode === activeMode ? "active" : ""}" data-action="calendar-mode" data-mode="${mode}">${escapeHTML(label)}</button>`;
+}
+
+function findCalendarRecord(kind, id) {
+  if (!id) return null;
+  if (kind === "visit") {
+    const visit = state.visits.find((item) => item.id === id);
+    return visit ? { kind: "visit", item: visit } : null;
+  }
+  const appointment = getAppointments().find((item) => item.id === id);
+  return appointment ? { kind: "appointment", item: appointment } : null;
 }
 
 function renderWorkflowImportLanes() {
@@ -1278,7 +1713,8 @@ function renderPromptCard(promptId, sample) {
 
 function renderImportLane(lane) {
   const isSchedule = lane.kind === "schedule";
-  const defaultStatus = isSchedule ? "외부 비전 AI 정리 텍스트 붙여넣기" : "초진 차트 · 후보 정리";
+  const targetLabel = lane.targetRecordType === "visit" ? "Visit" : "Appointment";
+  const defaultStatus = isSchedule ? `${targetLabel} 후보 · 외부 AI 정리 텍스트 붙여넣기` : "초진 차트 · 후보 정리";
   const placeholder = isSchedule ? "텍스트 붙여넣기" : "여기에 붙여넣기";
   return `
     <article class="paste-lane" data-lane="${lane.key}" tabindex="0" aria-label="${escapeHTML(lane.title)} 붙여넣기">
@@ -1287,7 +1723,7 @@ function renderImportLane(lane) {
           <h2>${escapeHTML(lane.title)}</h2>
           <p class="note">${escapeHTML(lane.ocrStatus || defaultStatus)}</p>
         </div>
-        <span class="badge ${isSchedule ? "follow" : "new"}">${isSchedule ? escapeHTML(lane.therapist || "담당자") : "신환"}</span>
+        <span class="badge ${isSchedule ? "follow" : "new"}">${isSchedule ? escapeHTML(targetLabel) : "신환"}</span>
       </div>
 
       <div class="paste-lane-controls">
@@ -1315,15 +1751,25 @@ function renderImportLane(lane) {
   `;
 }
 
-function renderWeeklyCalendar(weekDates, scheduleItems) {
+function renderWeeklyCalendar(weekDates, appointments, visits, mode = "split") {
   const slots = makeTimeSlots();
-  const bySlot = new Map();
-  scheduleItems.forEach((item) => {
+  const appointmentBySlot = new Map();
+  const visitBySlot = new Map();
+
+  appointments.forEach((item) => {
     const slot = slotFromTime(item.time);
     const key = `${item.date}|${slot}`;
-    const items = bySlot.get(key) || [];
+    const items = appointmentBySlot.get(key) || [];
     items.push(item);
-    bySlot.set(key, items);
+    appointmentBySlot.set(key, items);
+  });
+
+  visits.forEach((item) => {
+    const slot = slotFromTime(item.time);
+    const key = `${item.date}|${slot}`;
+    const items = visitBySlot.get(key) || [];
+    items.push(item);
+    visitBySlot.set(key, items);
   });
 
   return `
@@ -1342,11 +1788,10 @@ function renderWeeklyCalendar(weekDates, scheduleItems) {
           <div class="calendar-row">
             <div class="calendar-time">${slot}</div>
             ${weekDates.map((date) => {
-              const items = bySlot.get(`${date}|${slot}`) || [];
+              const appointmentItems = appointmentBySlot.get(`${date}|${slot}`) || [];
+              const visitItems = visitBySlot.get(`${date}|${slot}`) || [];
               return `
-                <div class="calendar-cell">
-                  ${items.map(renderCalendarAppointment).join("")}
-                </div>
+                ${renderCalendarCell(appointmentItems, visitItems, mode)}
               `;
             }).join("")}
           </div>
@@ -1356,14 +1801,41 @@ function renderWeeklyCalendar(weekDates, scheduleItems) {
   `;
 }
 
-function renderCalendarAppointment(item) {
-  const patient = findPatientByNameOrCode(item.patientName, item.patientCode);
+function renderCalendarCell(appointments, visits, mode) {
+  if (mode === "appointments") {
+    return `<div class="calendar-cell">${appointments.map((item) => renderCalendarRecord(item, "appointment")).join("")}</div>`;
+  }
+  if (mode === "visits") {
+    return `<div class="calendar-cell">${visits.map((item) => renderCalendarRecord(item, "visit")).join("")}</div>`;
+  }
+  return `
+    <div class="calendar-cell split-calendar-cell">
+      <div class="calendar-lane appointment-lane">
+        ${appointments.length ? `<div class="lane-mini-label">A</div>` : ""}
+        ${appointments.map((item) => renderCalendarRecord(item, "appointment")).join("")}
+      </div>
+      <div class="calendar-lane visit-lane">
+        ${visits.length ? `<div class="lane-mini-label">V</div>` : ""}
+        ${visits.map((item) => renderCalendarRecord(item, "visit")).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderCalendarRecord(item, kind) {
+  const patient = kind === "visit" ? getVisitPatient(item) : getAppointmentPatient(item);
   const durationClass = getScheduleDurationClass(item);
   const durationLabel = getScheduleDurationMinutes(item);
+  const name = kind === "visit" ? getVisitPatientName(item) : item.patientName || item.patientNameText || "환자 확인";
+  const typeLabel = kind === "visit" ? "Visit" : "Appointment";
+  const statusLabel =
+    kind === "visit"
+      ? item.transcript ? "transcript 연결" : "차트 대기"
+      : item.matchedVisitId ? "Visit 연결됨" : "예정";
   return `
-    <button class="appointment-button ${item.id === selectedScheduleId ? "selected" : ""} ${item.visitType === "초진" ? "initial" : "followup"} ${durationClass}" data-action="select-schedule" data-id="${item.id}">
-      <span>${escapeHTML(item.time)} · ${escapeHTML(item.patientName)}</span>
-      <small>${escapeHTML(item.patientCode || patient?.code || item.visitType)} · ${escapeHTML(item.note || (durationLabel ? `${durationLabel}분` : item.visitType))}</small>
+    <button class="appointment-button ${kind === "visit" ? "visit-record" : "appointment-record"} ${item.id === selectedScheduleId && selectedCalendarKind === kind ? "selected" : ""} ${item.visitType === "초진" ? "initial" : "followup"} ${durationClass}" data-action="select-calendar-record" data-kind="${kind}" data-id="${item.id}">
+      <span>${escapeHTML(item.time)} · ${escapeHTML(name)}</span>
+      <small>${escapeHTML(typeLabel)} · ${escapeHTML(durationLabel ? `${durationLabel}분` : statusLabel)} · ${escapeHTML(patient?.code || patient?.chartNumber || item.patientCode || item.visitType || "")}</small>
     </button>
   `;
 }
@@ -1384,31 +1856,42 @@ function getScheduleDurationClass(item) {
   return "duration-unknown";
 }
 
-function renderScheduleHistoryPanel(scheduleItem) {
-  if (!scheduleItem) {
+function renderScheduleHistoryPanel(record, kind = "appointment") {
+  if (!record) {
     return `
       <section class="panel">
-        <div class="panel-header"><h2>환자 히스토리</h2></div>
-        <div class="panel-body">${emptyState("선택된 예약 없음", "주간 예약표에서 환자를 누르면 과거 차트가 표시됩니다.")}</div>
+        <div class="panel-header"><h2>환자 요약</h2></div>
+        <div class="panel-body">${emptyState("선택된 기록 없음", "주간표에서 Appointment 또는 Visit 블록을 누르면 환자 요약이 표시됩니다.")}</div>
       </section>
     `;
   }
 
-  const patient = findPatientByNameOrCode(scheduleItem.patientName, scheduleItem.patientCode);
-  const visits = patient
+  const patient = kind === "visit" ? getVisitPatient(record) : getAppointmentPatient(record);
+  const displayName = kind === "visit" ? getVisitPatientName(record) : record.patientName || record.patientNameText || "환자 확인";
+  const duration = getScheduleDurationMinutes(record);
+  const visitsForPatient = patient
     ? state.visits
         .filter((visit) => visit.patientId === patient.id)
         .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
     : [];
+  const visits = patient
+    ? visitsForPatient
+    : kind === "visit"
+      ? [record]
+    : [];
+  const recordStatus =
+    kind === "visit"
+      ? record.transcript ? "Transcript 연결됨" : "차트 대기"
+      : record.matchedVisitId ? "Visit 연결됨" : "예정 Appointment";
 
   return `
     <section class="panel history-panel">
       <div class="panel-header">
         <div>
-          <h2>${escapeHTML(scheduleItem.patientName)}</h2>
-          <p class="note">${escapeHTML(scheduleItem.date)} ${escapeHTML(scheduleItem.time)} · ${escapeHTML(scheduleItem.visitType)} · ${escapeHTML(scheduleItem.note || "메모 없음")}</p>
+          <h2>${escapeHTML(displayName)}</h2>
+          <p class="note">${escapeHTML(record.date)} ${escapeHTML(record.time)} · ${escapeHTML(kind === "visit" ? "Visit" : "Appointment")} · ${escapeHTML(duration ? `${duration}분` : record.note || recordStatus)}</p>
         </div>
-        <span class="badge ${scheduleItem.visitType === "초진" ? "new" : "follow"}">${escapeHTML(patient?.code || "신규")}</span>
+        <span class="badge ${record.needsReview ? "warn" : record.visitType === "초진" ? "new" : "follow"}">${escapeHTML(record.needsReview ? record.reviewReason || "확인 필요" : patient?.code || patient?.chartNumber || "미등록")}</span>
       </div>
       <div class="panel-body">
         ${
@@ -1419,9 +1902,9 @@ function renderScheduleHistoryPanel(scheduleItem) {
                 <div><span>Flags</span><strong>${escapeHTML(patient.flags || "없음")}</strong></div>
               </div>
               <div class="split-actions">
-                <button class="small-button" data-action="select-patient" data-id="${patient.id}">환자 정보</button>
+                <button class="small-button" data-action="select-patient" data-id="${patient.id}">환자 상세 보기</button>
                 <button class="small-button" data-action="open-patient-visits" data-id="${patient.id}">방문 기록</button>
-                ${scheduleItem.matchedVisitId ? `<button class="small-button" data-action="open-visit" data-id="${scheduleItem.matchedVisitId}">오늘 기록</button>` : ""}
+                ${kind === "visit" ? `<button class="small-button" data-action="open-visit" data-id="${record.id}">Visit 열기</button>` : record.matchedVisitId ? `<button class="small-button" data-action="open-visit" data-id="${record.matchedVisitId}">연결 Visit</button>` : ""}
               </div>
               <div class="history-list">
                 ${
@@ -1432,9 +1915,10 @@ function renderScheduleHistoryPanel(scheduleItem) {
               </div>
             `
             : `
-              ${emptyState("등록되지 않은 환자", "신규 환자면 초진 후 환자 정보와 방문 기록을 생성하세요.")}
+              ${emptyState(kind === "visit" && record.needsReview ? "환자 확인 필요" : "등록되지 않은 환자", kind === "visit" ? "동명이인이 있거나 환자 등록이 필요합니다. 환자 상세에서 차트번호를 기준으로 정리하세요." : "내일 Appointment는 환자 등록 전 이름 텍스트만 임시로 가질 수 있습니다.")}
               <div class="split-actions">
                 <button class="small-button" data-action="go-inbox">초진 정보 업로드</button>
+                ${kind === "visit" ? `<button class="small-button" data-action="open-visit" data-id="${record.id}">Visit 열기</button>` : ""}
               </div>
             `
         }
@@ -1461,7 +1945,7 @@ function renderHistoryVisit(visit) {
 }
 
 function renderScheduleItem(item) {
-  const patient = findPatientByNameOrCode(item.patientName, item.patientCode);
+  const patient = getAppointmentPatient(item);
   return `
     <article class="item">
       <div class="item-top">
@@ -1483,7 +1967,11 @@ function renderInboxMatchCard(item) {
   if (item.type === "schedule_candidate") return renderScheduleCandidateCard(item);
   if (item.type === "doctor_chart") return renderDoctorChartCandidateCard(item);
 
-  const match = item.type === "transcript" ? findBestScheduleForInbox(item) : null;
+  const match = item.type === "transcript" ? findBestRecordForInbox(item) : null;
+  const matchName =
+    match?.kind === "visit"
+      ? getVisitPatientName(match.item)
+      : match?.item.patientName || match?.item.patientNameText || "";
   return `
     <article class="item">
       <div class="item-top">
@@ -1495,14 +1983,16 @@ function renderInboxMatchCard(item) {
       </div>
       ${
         match
-          ? `<div class="badge-row"><span class="badge follow">후보 ${escapeHTML(match.item.time)} ${escapeHTML(match.item.patientName)}</span><span class="badge warn">score <span class="match-score">${Math.round(match.score)}</span></span></div>`
+          ? `<div class="badge-row"><span class="badge follow">${escapeHTML(match.kind === "visit" ? "Visit 후보" : "Appointment 후보")} ${escapeHTML(match.item.time)} ${escapeHTML(matchName)}</span><span class="badge warn">score <span class="match-score">${Math.round(match.score)}</span></span></div>`
           : `<p class="note">자동 후보가 없습니다.</p>`
       }
       <div class="split-actions">
         <button class="small-button" data-action="preview-inbox" data-id="${item.id}">보기</button>
         ${
-          item.type === "transcript"
-            ? `<button class="primary-button" data-action="create-visit" data-id="${item.id}" data-schedule="${match?.item.id || ""}">방문 기록 생성</button>`
+          item.type === "transcript" && match?.kind === "visit"
+            ? `<button class="primary-button" data-action="link-transcript-visit" data-id="${item.id}" data-visit="${match.item.id}">Visit에 연결</button>`
+            : item.type === "transcript"
+              ? `<button class="primary-button" data-action="create-visit" data-id="${item.id}" data-schedule="${match?.kind === "appointment" ? match.item.id : ""}">새 Visit 생성</button>`
             : ""
         }
       </div>
@@ -1543,12 +2033,13 @@ function renderDoctorChartCandidateCard(item) {
 
 function renderScheduleCandidateCard(item) {
   const reason = item.needsReview ? item.reviewReason || "검토 필요" : "확인 후 반영";
+  const targetLabel = item.targetRecordType === "visit" ? "Visit" : "Appointment";
   return `
     <article class="item">
       <div class="item-top">
         <div>
           <h3>${escapeHTML(item.recordedTime || "시간 확인")} · ${escapeHTML(item.patientHint || "이름 확인")}</h3>
-          <div class="meta">${escapeHTML(item.recordedDate || todayISO())} · duration ${escapeHTML(item.durationMinutes || "?")}분</div>
+          <div class="meta">${escapeHTML(item.recordedDate || todayISO())} · ${escapeHTML(targetLabel)} · duration ${escapeHTML(item.durationMinutes || "?")}분</div>
         </div>
         <span class="badge ${item.needsReview ? "warn" : "follow"}">${escapeHTML(reason)}</span>
       </div>
@@ -1568,7 +2059,7 @@ function renderScheduleCandidateCard(item) {
       </div>
       <div class="split-actions">
         <button class="ghost-button" data-action="discard-schedule-candidate" data-id="${item.id}">폐기</button>
-        <button class="primary-button" data-action="confirm-schedule-candidate" data-id="${item.id}">스케줄 반영</button>
+        <button class="primary-button" data-action="confirm-schedule-candidate" data-id="${item.id}">${escapeHTML(targetLabel)} 저장</button>
       </div>
     </article>
   `;
@@ -1680,7 +2171,7 @@ function renderPatientForm(patient) {
     <form class="stack" id="patientForm" data-id="${patient.id}">
       <div class="field-grid">
         <div class="field">
-          <label for="patientCode">코드</label>
+          <label for="patientCode">차트번호/코드</label>
           <input id="patientCode" value="${escapeHTML(patient.code)}" />
         </div>
         <div class="field">
@@ -1751,17 +2242,19 @@ function renderVisits(query = "") {
 
 function renderVisitItem(visit) {
   const patient = state.patients.find((item) => item.id === visit.patientId);
+  const tracking = Array.isArray(visit.tracking) ? visit.tracking : [];
+  const duration = getScheduleDurationMinutes(visit);
   return `
     <article class="item ${visit.id === selectedVisitId ? "selected" : ""}" data-action="select-visit" data-id="${visit.id}">
       <div class="item-top">
         <div>
-          <h3>${escapeHTML(visit.date)} ${escapeHTML(visit.time)} · ${escapeHTML(patient?.name || "환자 없음")}</h3>
-          <div class="meta">${escapeHTML(patient?.code || "")} · ${escapeHTML(visit.visitType)}</div>
+          <h3>${escapeHTML(visit.date)} ${escapeHTML(visit.time)} · ${escapeHTML(patient?.name || visit.patientNameText || "환자 확인")}</h3>
+          <div class="meta">${escapeHTML(patient?.code || visit.reviewReason || "patient link 필요")} · ${escapeHTML(visit.visitType)}${duration ? ` · ${escapeHTML(duration)}분` : ""}</div>
         </div>
-        <span class="badge ${visit.confirmed ? "follow" : "warn"}">${visit.confirmed ? "confirmed" : "draft"}</span>
+        <span class="badge ${visit.needsReview ? "warn" : visit.transcript ? "follow" : "warn"}">${visit.needsReview ? "patient 확인" : visit.transcript ? "linked" : "chart 대기"}</span>
       </div>
       <p class="note">${escapeHTML(visit.summary || "summary 없음")}</p>
-      <div class="badge-row">${visit.tracking.slice(0, 4).map((item) => `<span class="badge">${escapeHTML(item.name)}</span>`).join("")}</div>
+      <div class="badge-row">${tracking.slice(0, 4).map((item) => `<span class="badge">${escapeHTML(item.name)}</span>`).join("")}</div>
     </article>
   `;
 }
@@ -1773,7 +2266,7 @@ function renderVisitEditor(visit) {
       <div class="field-grid three">
         <div class="field">
           <label>환자</label>
-          <input value="${escapeHTML(patient?.code || "")} · ${escapeHTML(patient?.name || "")}" disabled />
+          <input value="${escapeHTML(patient?.code || visit.reviewReason || "환자 연결 필요")} · ${escapeHTML(patient?.name || visit.patientNameText || "")}" disabled />
         </div>
         <div class="field">
           <label for="visitDate">날짜</label>
@@ -1782,6 +2275,20 @@ function renderVisitEditor(visit) {
         <div class="field">
           <label for="visitTime">시간</label>
           <input id="visitTime" type="time" value="${escapeHTML(visit.time)}" />
+        </div>
+      </div>
+      <div class="field-grid three">
+        <div class="field">
+          <label for="visitDuration">치료시간</label>
+          <input id="visitDuration" value="${escapeHTML(visit.durationMinutes || "")}" placeholder="60" />
+        </div>
+        <div class="field">
+          <label>연결 상태</label>
+          <input value="${escapeHTML(visit.transcript ? "Transcript 연결됨" : "차트 대기")}" disabled />
+        </div>
+        <div class="field">
+          <label>출처</label>
+          <input value="${escapeHTML(visit.recordSource || visit.sourceFile || "manual")}" disabled />
         </div>
       </div>
 
@@ -2027,9 +2534,9 @@ function renderSettings() {
           <div class="list">
             ${pipelineStep("1", "Whisper Memos", "Apple Watch/iPhone 녹음 후 iCloud transcript export")}
             ${pipelineStep("2", "MacBook watcher", "iCloud 텍스트 파일을 감시해서 raw_inbox로 업로드")}
-            ${pipelineStep("3", "Schedule OCR", "스케줄 캡쳐에서 시간/환자/초진 여부 추출")}
-            ${pipelineStep("4", "Match engine", "녹음 시간 + 환자 힌트 + 예약표로 방문 후보 매칭")}
-            ${pipelineStep("5", "Review Inbox", "최종 확정 전 차트 초안 확인")}
+            ${pipelineStep("3", "Tomorrow Appointment", "퇴근 전 다음날 예약표를 Appointment로 저장")}
+            ${pipelineStep("4", "Daily Visit", "퇴근 전 당일 최종 예약표를 Visit 후보로 확정")}
+            ${pipelineStep("5", "Review Inbox", "Whisper transcript를 Visit에 추천 연결하고 사용자가 확인")}
           </div>
         </div>
       </section>
@@ -2042,7 +2549,7 @@ function renderSettings() {
         <div class="panel-body">
           <div class="list">
             ${pipelineStep("A", "지금", "localStorage 앱 상태를 Supabase app_snapshots 테이블에 통째로 백업/복원")}
-            ${pipelineStep("B", "다음", "환자/방문/용어 테이블을 개별 upsert 방식으로 전환")}
+            ${pipelineStep("B", "다음", "patients/appointments/visits/raw_inbox를 개별 upsert 방식으로 전환")}
             ${pipelineStep("C", "이후", "Whisper Memos iCloud watcher가 raw_inbox로 자동 업로드")}
           </div>
         </div>
@@ -2099,10 +2606,24 @@ function attachEvents() {
       dashboardWeekStart = addDays(dashboardWeekStart, 7);
       render();
     }
+    if (action === "calendar-mode") {
+      setCalendarViewMode(target.dataset.mode);
+      saveState();
+      render();
+    }
+    if (action === "select-calendar-record") {
+      selectedScheduleId = id;
+      selectedCalendarKind = target.dataset.kind || "appointment";
+      const record = findCalendarRecord(selectedCalendarKind, id)?.item;
+      const patient = selectedCalendarKind === "visit" ? getVisitPatient(record || {}) : record ? getAppointmentPatient(record) : null;
+      if (patient) selectedPatientId = patient.id;
+      render();
+    }
     if (action === "select-schedule") {
       selectedScheduleId = id;
-      const scheduleItem = state.scheduleItems.find((item) => item.id === id);
-      const patient = scheduleItem ? findPatientByNameOrCode(scheduleItem.patientName, scheduleItem.patientCode) : null;
+      selectedCalendarKind = "appointment";
+      const scheduleItem = getAppointments().find((item) => item.id === id);
+      const patient = scheduleItem ? getAppointmentPatient(scheduleItem) : null;
       if (patient) selectedPatientId = patient.id;
       render();
     }
@@ -2124,6 +2645,10 @@ function attachEvents() {
     }
     if (action === "open-patient-visits") {
       selectedPatientId = id;
+      const latestVisit = state.visits
+        .filter((visit) => visit.patientId === id)
+        .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))[0];
+      if (latestVisit) selectedVisitId = latestVisit.id;
       setView("visits");
     }
     if (action === "new-patient") {
@@ -2131,6 +2656,7 @@ function attachEvents() {
       const patient = {
         id: uid("patient"),
         code: `P${nextNumber}`,
+        chartNumber: `P${nextNumber}`,
         name: "신규 환자",
         sex: "",
         age: "",
@@ -2144,6 +2670,7 @@ function attachEvents() {
       render();
     }
     if (action === "create-visit") createVisitFromInbox(id, target.dataset.schedule || null);
+    if (action === "link-transcript-visit") linkTranscriptToVisit(id, target.dataset.visit);
     if (action === "confirm-schedule-candidate") confirmScheduleCandidate(id);
     if (action === "discard-schedule-candidate") discardScheduleCandidate(id);
     if (action === "create-initial-visit") createInitialVisitFromDoctorChart(id);
@@ -2759,11 +3286,13 @@ function processImportLane(laneKey, options = {}) {
 
   if (lane.kind === "schedule") {
     const sourceFile = lane.sourceFile;
+    const targetRecordType = lane.targetRecordType || (lane.key === "todaySchedule" ? "visit" : "appointment");
     const candidates = parseSmartCrmScheduleCandidates(
       lane.text,
       lane.date,
       lane.therapist,
       sourceFile,
+      targetRecordType,
     );
 
     if (!candidates.length) {
@@ -2790,7 +3319,7 @@ function processImportLane(laneKey, options = {}) {
     lane.screenshotCount = 0;
     lane.ocrStatus = "";
     saveState();
-    toast(`${lane.title}: 스케줄 후보 ${candidates.length}개를 Inbox에 만들었습니다.`);
+    toast(`${lane.title}: ${targetRecordType === "visit" ? "Visit" : "Appointment"} 후보 ${candidates.length}개를 Inbox에 만들었습니다.`);
     if (currentView !== "inbox") setView("inbox");
     else render();
     return;
@@ -2877,10 +3406,10 @@ async function handleScheduleForm(form) {
     });
   }
   if (items.length) {
-    state.scheduleItems = [
-      ...items,
-      ...state.scheduleItems.filter((item) => item.date !== date || item.sourceFile !== sourceFile),
-    ];
+    setAppointments([
+      ...items.map(normalizeAppointmentRecord),
+      ...getAppointments().filter((item) => item.date !== date || item.sourceFile !== sourceFile),
+    ]);
   }
   saveState();
   form.reset();
@@ -2923,6 +3452,7 @@ function handlePatientForm(form) {
   const patient = state.patients.find((entry) => entry.id === form.dataset.id);
   if (!patient) return;
   patient.code = form.querySelector("#patientCode").value.trim();
+  patient.chartNumber = patient.code;
   patient.name = form.querySelector("#patientName").value.trim();
   patient.age = form.querySelector("#patientAge").value.trim();
   patient.sex = form.querySelector("#patientSex").value;
@@ -2938,6 +3468,7 @@ function handleVisitForm(form) {
   if (!visit) return;
   visit.date = form.querySelector("#visitDate").value;
   visit.time = form.querySelector("#visitTime").value;
+  visit.durationMinutes = normalizeTreatmentMinutes(form.querySelector("#visitDuration")?.value || visit.durationMinutes || "");
   visit.summary = form.querySelector("#visitSummary").value.trim();
   visit.signals = form
     .querySelector("#visitSignals")
@@ -3209,6 +3740,9 @@ function mapCloudInboxRow(row) {
     text: row.raw_text || row.ocr_text || "",
     correctedText: row.corrected_text || row.raw_text || row.ocr_text || "",
     status: "new",
+    patientId: row.patient_id || null,
+    appointmentId: row.appointment_id || null,
+    matchStatus: row.match_status || "suggested",
     matchedVisitId: null,
   };
 }

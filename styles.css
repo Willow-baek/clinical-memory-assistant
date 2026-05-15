@@ -681,6 +681,38 @@ select:focus {
   gap: 14px;
 }
 
+.calendar-toolbar {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.segmented-control {
+  display: inline-grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #eef3f4;
+}
+
+.segmented-button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.segmented-button.active,
+.segmented-button:hover {
+  background: #fff;
+  color: var(--accent-strong);
+}
+
 .weekly-panel .panel-body {
   padding: 0;
 }
@@ -765,6 +797,28 @@ select:focus {
   background: #fff;
 }
 
+.split-calendar-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 5px;
+}
+
+.calendar-lane {
+  min-width: 0;
+}
+
+.visit-lane {
+  border-left: 1px dashed var(--line);
+  padding-left: 5px;
+}
+
+.lane-mini-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
 .calendar-cell:empty {
   background: #fcfdfd;
 }
@@ -799,6 +853,20 @@ select:focus {
 
 .appointment-button.followup {
   border-left-color: var(--accent);
+}
+
+.appointment-button.appointment-record {
+  background: #f8fbfb;
+}
+
+.appointment-button.visit-record {
+  border-left-color: #537ea3;
+  background: #f7f9fd;
+}
+
+.appointment-button.visit-record:hover,
+.appointment-button.visit-record.selected {
+  background: #eef4fb;
 }
 
 .appointment-button.duration-30 {
