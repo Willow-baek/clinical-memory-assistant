@@ -4,44 +4,69 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Clinical Memory Assistant</title>
-    <link rel="stylesheet" href="./styles.css?v=20260516-chatgpt-pane" />
+    <link rel="stylesheet" href="./styles.css?v=20260516-chatgpt-workflow" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark">CM</div>
-          <div>
-            <strong>Clinical Memory</strong>
-            <span>PT assistant</span>
-          </div>
-        </div>
-
-        <div class="sync-card" id="sidebarAuthCard">
-          <div class="sync-status-row">
-            <span class="status-dot local" id="syncStatusDot"></span>
+        <div class="sidebar-compact">
+          <div class="brand">
+            <div class="brand-mark">CM</div>
             <div>
-              <strong id="syncModeLabel">Logged out</strong>
-              <span id="syncDetailLabel">로그인 필요</span>
+              <strong>Clinical Memory</strong>
+              <span>PT assistant</span>
             </div>
           </div>
-          <button class="sidebar-auth-button" id="sidebarAuthButton" data-action="open-settings">로그인</button>
+
+          <div class="sync-card" id="sidebarAuthCard">
+            <div class="sync-status-row">
+              <span class="status-dot local" id="syncStatusDot"></span>
+              <div>
+                <strong id="syncModeLabel">Logged out</strong>
+                <span id="syncDetailLabel">로그인 필요</span>
+              </div>
+            </div>
+            <button class="sidebar-auth-button" id="sidebarAuthButton" data-action="open-settings">로그인</button>
+          </div>
+
+          <nav class="nav" aria-label="주요 화면">
+            <span class="sidebar-section-title">메뉴</span>
+            <button class="nav-item active" data-view="dashboard" data-short="오" title="오늘"><span>오늘</span></button>
+            <button class="nav-item" data-view="inbox" data-short="I" title="Import Inbox"><span>Import Inbox</span></button>
+            <button class="nav-item" data-view="patients" data-short="환" title="환자"><span>환자</span></button>
+            <button class="nav-item" data-view="visits" data-short="방" title="방문 기록"><span>방문 기록</span></button>
+            <button class="nav-item" data-view="terms" data-short="용" title="용어 사전"><span>용어 사전</span></button>
+            <button class="nav-item" data-view="settings" data-short="설" title="설정"><span>설정</span></button>
+          </nav>
+
+          <div class="sidebar-tools">
+            <span class="sidebar-section-title">외부 AI</span>
+            <button class="sidebar-action tool-item" data-action="open-chatgpt" data-short="AI" title="ChatGPT 열기"><span>ChatGPT 열기</span></button>
+          </div>
         </div>
 
-        <nav class="nav" aria-label="주요 화면">
-          <span class="sidebar-section-title">메뉴</span>
-          <button class="nav-item active" data-view="dashboard">오늘</button>
-          <button class="nav-item" data-view="inbox">Import Inbox</button>
-          <button class="nav-item" data-view="patients">환자</button>
-          <button class="nav-item" data-view="visits">방문 기록</button>
-          <button class="nav-item" data-view="terms">용어 사전</button>
-          <button class="nav-item" data-view="settings">설정</button>
-        </nav>
+        <section class="ai-sidebar-panel" aria-label="외부 AI 워크플로우">
+          <div class="ai-sidebar-header">
+            <h2>외부 AI 워크플로우</h2>
+            <div class="ai-sidebar-header-actions">
+              <button class="ai-mini-button" data-action="focus-chatgpt">↗ 앞으로 가져오기</button>
+              <button class="ai-icon-button" data-action="close-chatgpt-sidebar" aria-label="외부 AI 패널 닫기">×</button>
+            </div>
+          </div>
 
-        <div class="sidebar-tools">
-          <span class="sidebar-section-title">외부 AI</span>
-          <button class="sidebar-action tool-item" data-action="open-chatgpt">ChatGPT 열기</button>
-        </div>
+          <div class="ai-sidebar-section">
+            <h3>1. 프롬프트 복사</h3>
+            <button class="ai-copy-button" data-action="copy-import-prompt" data-prompt="scheduleCombined">스케줄 OCR 프롬프트 복사</button>
+            <button class="ai-copy-button" data-action="copy-import-prompt" data-prompt="transcriptCleanup">Transcript 정리 프롬프트 복사</button>
+            <button class="ai-copy-button" data-action="copy-import-prompt" data-prompt="doctorInitialChart">초진 차트 OCR 프롬프트 복사</button>
+          </div>
+
+          <div class="ai-sidebar-section grow">
+            <h3>2. 결과 붙여넣기</h3>
+            <textarea id="aiWorkflowResult" placeholder="[VISITS] 또는 [SUBJECTIVE] 또는 [INITIAL_CHART] 결과를 붙여넣기"></textarea>
+            <button class="primary-button" data-action="process-ai-workflow-result">Import로 반영</button>
+          </div>
+        </section>
       </aside>
 
       <main class="workspace">
@@ -82,7 +107,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="./config.public.js"></script>
-    <script src="./prompt-templates.js?v=20260516-chatgpt-pane"></script>
-    <script src="./app.js?v=20260516-chatgpt-pane"></script>
+    <script src="./prompt-templates.js?v=20260516-chatgpt-workflow"></script>
+    <script src="./app.js?v=20260516-chatgpt-workflow"></script>
   </body>
 </html>

@@ -198,3 +198,4 @@ red flag 또는 주의사항이 보이면 정리. 없거나 불확실하면 blan
   },
 };
 
+window.promptTemplates = window.CMA_PROMPT_TEMPLATES;

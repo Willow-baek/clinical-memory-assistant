@@ -8,7 +8,7 @@ const DEFAULT_SUPABASE_ANON_KEY = LOCAL_CONFIG.supabaseAnonKey || "";
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
-const PROMPT_TEMPLATES = window.CMA_PROMPT_TEMPLATES || {};
+const PROMPT_TEMPLATES = window.promptTemplates || window.CMA_PROMPT_TEMPLATES || {};
 
 const DEFAULT_TERMS = [
   ["해피", "HEP", "home exercise program", "exercise"],
@@ -134,8 +134,7 @@ let importLanes = {
   transcriptCleanup: makeImportLane("transcriptCleanup"),
   doctorChart: makeImportLane("doctorChart"),
 };
-let chatGPTPopup = null;
-let chatGPTCloseWatcher = null;
+let gptWindow = null;
 let learningDraft = {
   from: "",
   to: "",
@@ -2791,6 +2790,9 @@ function attachEvents() {
       window.setTimeout(() => document.getElementById("supabaseEmail")?.focus(), 0);
     }
     if (action === "open-chatgpt") openChatGPTWindow();
+    if (action === "focus-chatgpt") handleFocusChatGPTWindow();
+    if (action === "close-chatgpt-sidebar") closeChatGPTSidebar();
+    if (action === "process-ai-workflow-result") processAIWorkflowResult();
     if (action === "lane-clear") clearImportLane(target.dataset.lane);
     if (action === "lane-process") processImportLane(target.dataset.lane);
     if (action === "capture-selection") captureLearningSelection();
@@ -3475,83 +3477,124 @@ async function copyExternalPrompt(promptId) {
 }
 
 function openChatGPTWindow() {
-  setChatGPTShellOpen(true);
-  if (chatGPTPopup && !chatGPTPopup.closed) {
-    positionChatGPTWindow(chatGPTPopup);
-    chatGPTPopup.focus();
-    startChatGPTCloseWatcher();
+  setChatGPTWorkflowOpen(true);
+  if (isGPTWindowOpen()) {
+    focusGPTWindow();
     toast("열려 있는 ChatGPT 창을 앞으로 가져왔습니다.");
     return;
   }
 
   const geometry = getChatGPTPopupGeometry();
-  const popup = window.open(
+  gptWindow = window.open(
     "https://chatgpt.com/",
     "clinicalMemoryChatGPT",
     `popup=yes,width=${geometry.width},height=${geometry.height},left=${geometry.left},top=${geometry.top},resizable=yes,scrollbars=yes`,
   );
-  if (popup) {
-    chatGPTPopup = popup;
-    positionChatGPTWindow(popup);
-    popup.focus();
-    startChatGPTCloseWatcher();
+  if (gptWindow) {
+    focusGPTWindow();
     toast("ChatGPT 창을 열었습니다.");
   } else {
-    setChatGPTShellOpen(false);
     toast("팝업이 막혔어요. 브라우저 팝업 허용 후 다시 눌러주세요.");
   }
 }
 
-function setChatGPTShellOpen(isOpen) {
-  document.body.classList.toggle("chatgpt-window-open", isOpen);
+function setChatGPTWorkflowOpen(isOpen) {
+  document.body.classList.toggle("chatgpt-workflow-open", isOpen);
 }
 
 function getChatGPTPopupGeometry() {
-  const sidebar = document.querySelector(".sidebar");
-  const rect = sidebar?.getBoundingClientRect() || { left: 0, top: 0, width: 472, height: window.innerHeight };
-  const frameX = Math.max(0, Math.round((window.outerWidth - window.innerWidth) / 2));
-  const frameTop = Math.max(0, Math.round(window.outerHeight - window.innerHeight - frameX));
+  const styles = getComputedStyle(document.documentElement);
+  const configuredWidth = parseInt(styles.getPropertyValue("--sidebar-expanded-width"), 10);
+  const width = Number.isFinite(configuredWidth) ? configuredWidth : 320;
   const screenLeft = window.screenX ?? window.screenLeft ?? 0;
   const screenTop = window.screenY ?? window.screenTop ?? 0;
   const availLeft = window.screen.availLeft || 0;
   const availTop = window.screen.availTop || 0;
   const screenWidth = window.screen.availWidth || window.outerWidth || 1200;
   const screenHeight = window.screen.availHeight || window.outerHeight || 900;
-  const left = Math.max(0, Math.round(screenLeft + frameX + rect.left));
-  const top = Math.max(0, Math.round(screenTop + frameTop + rect.top));
-  const width = Math.max(420, Math.round(rect.width));
-  const requestedHeight = Math.round(rect.height * 0.5);
-  const maxHeight = Math.max(420, screenHeight - top - 24);
-  const height = Math.min(Math.max(460, requestedHeight), maxHeight);
+  const left = Math.round(screenLeft);
+  const top = Math.round(screenTop);
+  const height = Math.min(Math.max(460, Math.round(window.outerHeight || screenHeight)), screenHeight);
 
   return {
-    left: Math.min(Math.max(availLeft, left), Math.max(availLeft, availLeft + screenWidth - width - 12)),
-    top: Math.min(Math.max(availTop, top), Math.max(availTop, availTop + screenHeight - height - 12)),
+    left: Math.min(Math.max(availLeft, left), Math.max(availLeft, availLeft + screenWidth - width)),
+    top: Math.min(Math.max(availTop, top), Math.max(availTop, availTop + screenHeight - height)),
     width,
     height,
   };
 }
 
-function positionChatGPTWindow(popup) {
-  const geometry = getChatGPTPopupGeometry();
+function isGPTWindowOpen() {
   try {
-    popup.resizeTo(geometry.width, geometry.height);
-    popup.moveTo(geometry.left, geometry.top);
+    return Boolean(gptWindow && !gptWindow.closed);
   } catch {
-    // Some browsers ignore popup window positioning after navigation.
+    return Boolean(gptWindow);
   }
 }
 
-function startChatGPTCloseWatcher() {
-  window.clearInterval(chatGPTCloseWatcher);
-  chatGPTCloseWatcher = window.setInterval(() => {
-    if (!chatGPTPopup || chatGPTPopup.closed) {
-      chatGPTPopup = null;
-      window.clearInterval(chatGPTCloseWatcher);
-      chatGPTCloseWatcher = null;
-      setChatGPTShellOpen(false);
-    }
-  }, 700);
+function focusGPTWindow() {
+  if (!gptWindow) return false;
+  try {
+    gptWindow.focus();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function handleFocusChatGPTWindow() {
+  if (isGPTWindowOpen()) {
+    focusGPTWindow();
+    toast("ChatGPT 창을 앞으로 가져왔습니다.");
+    return;
+  }
+
+  if (window.confirm("ChatGPT 창이 닫혀 있어요. 다시 열까요?")) {
+    gptWindow = null;
+    openChatGPTWindow();
+  }
+}
+
+function closeChatGPTSidebar() {
+  setChatGPTWorkflowOpen(false);
+}
+
+function processAIWorkflowResult() {
+  const field = document.getElementById("aiWorkflowResult");
+  const text = field?.value.trim() || "";
+  if (!text) {
+    toast("붙여넣을 ChatGPT 결과가 필요합니다.");
+    return;
+  }
+
+  const target = inferAIWorkflowImportTarget(text);
+  if (!target) {
+    state.rawInbox.unshift(makeUnknownSectionsInboxItem(parseSectionedText(text), "chatgpt_result", todayISO()));
+    saveState();
+    if (field) field.value = "";
+    toast("알 수 없는 형식으로 Inbox에 보관했습니다.");
+    setView("inbox");
+    return;
+  }
+
+  const lane = importLanes[target];
+  lane.text = text;
+  lane.sourceFile = "chatgpt_result";
+  processImportLane(target, { skipDomUpdate: true });
+  if (field) field.value = "";
+}
+
+function inferAIWorkflowImportTarget(text) {
+  const sectionNames = parseSectionedText(text).map((section) => section.name);
+  const hasSection = (names) => names.some((name) => sectionNames.includes(name));
+  if (hasSection(["VISITS", "APPOINTMENTS"])) return "combinedSchedule";
+  if (hasSection(["INITIAL_CHART", "MEASUREMENTS", "CHIEF_COMPLAINT", "MEDICAL_INFO", "PRECAUTIONS"])) {
+    return "doctorChart";
+  }
+  if (hasSection(["SUBJECTIVE", "OBJECTIVE", "TREATMENT", "HOMEWORK", "ASSESSMENT", "NEXT_CHECK", "SPECIAL_NOTES"])) {
+    return "transcriptCleanup";
+  }
+  return "";
 }
 
 function fileToDataURL(file) {
@@ -3699,7 +3742,7 @@ function hasUncertainText(value) {
 
 function processImportLane(laneKey, options = {}) {
   const auto = Boolean(options.auto);
-  updateAllImportLanesFromDOM();
+  if (!options.skipDomUpdate) updateAllImportLanesFromDOM();
   const lane = importLanes[laneKey];
   if (!lane) return;
 
