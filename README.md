@@ -19,8 +19,9 @@ python3 -m http.server 4173
 - 내일 Appointment 확인
 - 당일 최종 OCR 기반 Visit 후보 확정
 - Whisper transcript 붙여넣기 또는 `.txt` 업로드
-- 스케줄 캡쳐 OCR 텍스트 반영
-- 의사 초진 차트 캡쳐 정보 저장
+- 전체 스케줄 캡쳐를 외부 AI로 정리한 뒤 `[VISITS]` / `[APPOINTMENTS]` 결과 한 번 붙여넣기
+- Whisper transcript cleanup 결과를 section 형식으로 붙여넣고 Visit draft에 연결
+- 의사 초진 차트 캡쳐를 외부 AI로 정리한 뒤 초진 후보로 저장
 - GitHub Pages 배포 후 병원 Windows PC에서 스크린샷 붙여넣기
 - 녹음 시간과 OCR Visit 시간 기반 추천 매칭 후보
 - 환자 자동 생성
@@ -42,12 +43,29 @@ python3 -m http.server 4173
 
 중요 원칙: Whisper transcript는 OCR Visit을 덮어쓰지 않고, 기존 Visit record에 연결됩니다.
 
+## 외부 AI Import Workflow
+
+MVP에서는 앱 내부에서 OpenAI API, OCR API, LLM API를 직접 호출하지 않습니다.
+
+1. 앱의 Import Inbox에서 필요한 `Copy Prompt` 버튼을 누릅니다.
+2. ChatGPT/Claude/Gemini에 스크린샷 또는 원문과 함께 프롬프트를 붙여넣습니다.
+3. 외부 AI 결과를 앱 Import 칸에 붙여넣습니다.
+4. 앱은 section header를 기준으로 파싱하고, raw inbox 후보로 저장합니다.
+5. 사용자가 확인 버튼을 눌러 Patient / Appointment / Visit에 연결합니다.
+
+현재 프롬프트는 `prompt-templates.js`에서 관리합니다.
+
+- `scheduleCombined`: `[VISITS]`, `[APPOINTMENTS]`
+- `transcriptCleanup`: `[SUBJECTIVE]`, `[OBJECTIVE]`, `[TREATMENT]`, `[HOMEWORK]`, `[ASSESSMENT]`, `[NEXT_CHECK]`, `[SPECIAL_NOTES]`
+- `doctorInitialChart`: `[INITIAL_CHART]`, `[MEASUREMENTS]`, `[CHIEF_COMPLAINT]`, `[MEDICAL_INFO]`, `[PRECAUTIONS]`, `[RAW_NOTES]`, `[NEEDS_REVIEW]`
+
+알 수 없는 section은 버리지 않고 raw notes 후보로 남깁니다.
+
 ## 다음 연결 지점
 
 - Supabase 개별 테이블 동기화 고도화: `patients`, `appointments`, `visits`, `raw_inbox`, `matching_candidates`, `terms`
 - MacBook watcher: Whisper Memos iCloud transcript 폴더 감시 후 `raw_inbox` 업로드
-- OCR: 스케줄/의사 차트 캡쳐 이미지에서 텍스트 추출
-- AI API: transcript에서 signal, hypothesis, progression, chart draft 생성
+- API 자동화: 현재 수동 프롬프트 workflow가 안정화된 뒤 선택적으로 추가
 
 ## Supabase 준비
 

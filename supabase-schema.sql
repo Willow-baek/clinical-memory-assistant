@@ -77,11 +77,15 @@ create table if not exists public.raw_inbox (
   raw_text text,
   corrected_text text,
   ocr_text text,
+  sections jsonb not null default '{}'::jsonb,
+  measurements jsonb not null default '[]'::jsonb,
   status text not null default 'new',
   match_status text not null default 'suggested',
   patient_id uuid references public.patients(id) on delete set null,
   appointment_id uuid references public.appointments(id) on delete set null,
   matched_visit_id uuid,
+  needs_review boolean not null default false,
+  review_reason text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -156,9 +160,13 @@ create table if not exists public.app_snapshots (
 );
 
 alter table public.patients add column if not exists chart_number text;
+alter table public.raw_inbox add column if not exists sections jsonb not null default '{}'::jsonb;
+alter table public.raw_inbox add column if not exists measurements jsonb not null default '[]'::jsonb;
 alter table public.raw_inbox add column if not exists match_status text not null default 'suggested';
 alter table public.raw_inbox add column if not exists patient_id uuid references public.patients(id) on delete set null;
 alter table public.raw_inbox add column if not exists appointment_id uuid references public.appointments(id) on delete set null;
+alter table public.raw_inbox add column if not exists needs_review boolean not null default false;
+alter table public.raw_inbox add column if not exists review_reason text;
 alter table public.visits add column if not exists appointment_id uuid references public.appointments(id) on delete set null;
 alter table public.visits add column if not exists patient_name_text text;
 alter table public.visits add column if not exists duration_minutes integer;

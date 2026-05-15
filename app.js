@@ -8,71 +8,7 @@ const DEFAULT_SUPABASE_ANON_KEY = LOCAL_CONFIG.supabaseAnonKey || "";
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const uid = (prefix) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
-
-const EXTERNAL_AI_PROMPTS = {
-  schedule: {
-    title: "스케줄 OCR 정리 프롬프트",
-    description: "Smart CRM 스케줄 캡쳐를 외부 AI에 넣고, 앱에 붙여넣을 최소 텍스트만 받습니다.",
-    text: `아래 스케줄 캡쳐 이미지 또는 OCR 텍스트에서 필요한 정보만 추출해 주세요.
-
-목표:
-- 앱에 붙여넣을 스케줄 후보 텍스트 생성
-- 필요한 필드는 예약 시간, 환자 이름, 치료 시간 숫자 3개뿐입니다.
-
-출력 형식:
-09:00 김시완 40
-09:50 안규빈 60
-
-규칙:
-- 한 예약을 한 줄로 출력하세요.
-- 시간은 HH:MM 형식으로 출력하세요.
-- 환자 이름은 [도수(백한솔)] 바로 뒤에 나오는 이름에서 "님"을 제거해 출력하세요.
-- 치료 시간은 [도수치료60], [도수60분], [운동40패키지], [운동치료40] 같은 표현에서 숫자만 출력하세요.
-- 취소된 예약은 출력하지 마세요.
-- 상태, ok, 여진, 메모, 환자 요청사항, 기타 부가 텍스트는 출력하지 마세요.
-- 불확실한 값은 ? 로 표시하세요.
-- 설명, 표, markdown 없이 결과 줄만 출력하세요.`,
-  },
-  doctorChart: {
-    title: "초진 차트 정리 프롬프트",
-    description: "의사 초진 차트 캡쳐나 텍스트를 앱에 붙여넣기 쉬운 구조로 정리합니다.",
-    text: `아래 초진 차트 이미지 또는 텍스트를 물리치료 초진 정리용으로 구조화해 주세요.
-
-목표:
-- 앱에 붙여넣을 초진 요약 후보 생성
-- 확실하지 않은 값은 ? 로 표시
-- 원문에 없는 내용은 추측하지 말고 비워두거나 ? 로 표시
-
-출력 형식은 아래 key를 그대로 사용하세요:
-patient_name:
-chief_complaint:
-onset_history:
-pain_location:
-aggravating_factors:
-easing_factors:
-relevant_medical_info:
-precautions_red_flags:
-initial_signal:
-secondary_signal:
-noise:
-suggested_tracking_variables:
-
-정리 기준:
-- chief_complaint: 주호소
-- onset_history: 발생 시점/경과
-- pain_location: 통증 위치
-- aggravating_factors: 악화 요인
-- easing_factors: 완화 요인
-- relevant_medical_info: 관련 병력/검사/의학 정보
-- precautions_red_flags: 주의사항 또는 red flag
-- initial_signal: 현재 치료 방향과 직접 관련 큰 정보
-- secondary_signal: 관련은 있지만 우선순위가 낮은 정보
-- noise: 현재 치료 방향에 영향이 적은 정보
-- suggested_tracking_variables: 재진 때 반복 확인할 변수. 쉼표로 구분하세요.
-
-설명 문장이나 markdown 없이 key-value 형식만 출력하세요.`,
-  },
-};
+const PROMPT_TEMPLATES = window.CMA_PROMPT_TEMPLATES || {};
 
 const DEFAULT_TERMS = [
   ["해피", "HEP", "home exercise program", "exercise"],
@@ -194,8 +130,8 @@ let dashboardWeekStart = getWeekStartISO(todayISO());
 let selectedCalendarKind = getAppointments()[0]?.id ? "appointment" : "visit";
 let selectedScheduleId = getAppointments()[0]?.id || state.visits[0]?.id || null;
 let importLanes = {
-  todaySchedule: makeImportLane("todaySchedule"),
-  tomorrowSchedule: makeImportLane("tomorrowSchedule"),
+  combinedSchedule: makeImportLane("combinedSchedule"),
+  transcriptCleanup: makeImportLane("transcriptCleanup"),
   doctorChart: makeImportLane("doctorChart"),
 };
 let learningDraft = {
@@ -208,27 +144,26 @@ let learningDraft = {
 
 function makeImportLane(key) {
   const defaults = {
-    todaySchedule: {
-      kind: "schedule",
-      targetRecordType: "visit",
-      title: "당일 Visit 확정",
+    combinedSchedule: {
+      kind: "combined_schedule",
+      title: "스케줄 통합 Import",
+      date: todayISO(),
+      appointmentDate: addDays(todayISO(), 1),
+      therapist: "백한솔",
+      patientHint: "",
+      sourceFile: "smart crm combined schedule",
+    },
+    transcriptCleanup: {
+      kind: "transcript_cleanup",
+      title: "Transcript 정리 결과",
       date: todayISO(),
       therapist: "백한솔",
       patientHint: "",
-      sourceFile: "smart crm today final schedule",
-    },
-    tomorrowSchedule: {
-      kind: "schedule",
-      targetRecordType: "appointment",
-      title: "내일 Appointment",
-      date: addDays(todayISO(), 1),
-      therapist: "백한솔",
-      patientHint: "",
-      sourceFile: "smart crm tomorrow schedule",
+      sourceFile: "external ai transcript cleanup",
     },
     doctorChart: {
       kind: "doctor_chart",
-      title: "초진 차트",
+      title: "초진 차트 정리 결과",
       date: todayISO(),
       therapist: "",
       patientHint: "",
@@ -696,6 +631,86 @@ function parseSmartCrmScheduleCandidates(
     .filter(Boolean);
 }
 
+function parseCombinedScheduleImport(text, options) {
+  const sections = parseSectionedText(text);
+  const visitText = getSectionText(sections, ["VISITS", "VISIT"]);
+  const appointmentText = getSectionText(sections, ["APPOINTMENTS", "APPOINTMENT"]);
+  const candidates = [
+    ...parseSmartCrmScheduleCandidates(
+      visitText,
+      options.visitDate,
+      options.therapist,
+      `${options.sourceFile} visits`,
+      "visit",
+    ).map((candidate) => ({ ...candidate, sourceSection: "VISITS" })),
+    ...parseSmartCrmScheduleCandidates(
+      appointmentText,
+      options.appointmentDate,
+      options.therapist,
+      `${options.sourceFile} appointments`,
+      "appointment",
+    ).map((candidate) => ({ ...candidate, sourceSection: "APPOINTMENTS" })),
+  ];
+
+  return {
+    candidates,
+    sections,
+    unknownSections: collectUnknownSections(sections, ["VISITS", "VISIT", "APPOINTMENTS", "APPOINTMENT"]),
+  };
+}
+
+function parseSectionedText(text) {
+  const sections = [];
+  let current = {
+    name: "RAW",
+    lines: [],
+  };
+
+  String(text || "")
+    .replace(/\r/g, "\n")
+    .split(/\n/)
+    .forEach((line) => {
+      const header = line.trim().match(/^\[([A-Za-z0-9_ /-]+)]$/);
+      if (header) {
+        if (current.lines.length || current.name !== "RAW") sections.push(current);
+        current = {
+          name: normalizeSectionKey(header[1]),
+          lines: [],
+        };
+      } else {
+        current.lines.push(line);
+      }
+    });
+
+  if (current.lines.length || current.name !== "RAW") sections.push(current);
+  return sections.map((section) => ({
+    name: section.name,
+    text: section.lines.join("\n").trim(),
+  }));
+}
+
+function normalizeSectionKey(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s/-]+/g, "_");
+}
+
+function getSectionText(sections, names) {
+  const wanted = new Set(names.map(normalizeSectionKey));
+  return sections
+    .filter((section) => wanted.has(section.name))
+    .map((section) => section.text)
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function collectUnknownSections(sections, knownNames) {
+  const known = new Set(knownNames.map(normalizeSectionKey));
+  return sections.filter((section) => section.name !== "RAW" && !known.has(section.name) && section.text);
+}
+
 function parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile, targetRecordType = "appointment") {
   const time = normalizeKoreanTime(segment.timeText);
   if (!time) return null;
@@ -1156,6 +1171,71 @@ function linkTranscriptToVisit(inboxId, visitId) {
   render();
 }
 
+function findBestVisitForChartCleanup(item) {
+  const sameDate = state.visits.filter((visit) => visit.date === item.recordedDate);
+  if (!sameDate.length) return null;
+  const nameHint = normalizeNameForMatch(item.patientHint);
+  if (nameHint) {
+    const nameMatch = sameDate.find((visit) => normalizeNameForMatch(getVisitPatientName(visit)).includes(nameHint));
+    if (nameMatch) return nameMatch;
+  }
+  return sameDate
+    .slice()
+    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))[0];
+}
+
+function linkChartCleanupToVisit(inboxId, visitId) {
+  const inbox = state.rawInbox.find((entry) => entry.id === inboxId);
+  const visit = state.visits.find((entry) => entry.id === visitId);
+  if (!inbox || !visit) return;
+
+  const sections = inbox.sections || sectionsToObject(parseSectionedText(inbox.text || inbox.correctedText || ""));
+  const patient = getVisitPatient(visit) || { name: visit.patientNameText || inbox.patientHint || "환자 확인", code: "" };
+  const chartText = buildChartDraftFromSections(sections, visit, patient);
+
+  visit.summary = visit.summary || sections.SUBJECTIVE || sections.ASSESSMENT || "";
+  visit.treatment = mergeText(visit.treatment, sections.TREATMENT);
+  visit.homework = mergeText(visit.homework, sections.HOMEWORK);
+  visit.hep = mergeText(visit.hep, sections.HOMEWORK);
+  visit.nextFocus = mergeText(visit.nextFocus, sections.NEXT_CHECK);
+  visit.noise = mergeText(visit.noise, sections.SPECIAL_NOTES);
+  if (!visit.signals?.length && sections.ASSESSMENT) visit.signals = splitStructuredList(sections.ASSESSMENT);
+  visit.draft = chartText;
+  visit.chartCleanupInboxId = inbox.id;
+
+  inbox.status = "matched";
+  inbox.matchedVisitId = visit.id;
+  inbox.visitId = visit.id;
+  inbox.patientId = visit.patientId || null;
+  inbox.matchStatus = "confirmed";
+
+  selectedCalendarKind = "visit";
+  selectedScheduleId = visit.id;
+  selectedVisitId = visit.id;
+  if (visit.patientId) selectedPatientId = visit.patientId;
+  saveState();
+  toast("정리된 차트를 Visit draft에 연결했습니다.");
+  render();
+}
+
+function mergeText(existing, next) {
+  return [existing, next].filter(Boolean).join(existing && next ? "\n" : "");
+}
+
+function buildChartDraftFromSections(sections, visit, patient) {
+  const patientLabel = patient?.code || patient?.chartNumber || visit.patientNameText || "patient";
+  return [
+    `[${patientLabel}] ${visit.visitType || "Follow-up"} PT note`,
+    `S: ${sections.SUBJECTIVE || "?"}`,
+    `O: ${sections.OBJECTIVE || "?"}`,
+    `A: ${sections.ASSESSMENT || "?"}`,
+    `P: ${sections.TREATMENT || "?"}`,
+    `HEP: ${sections.HOMEWORK || "?"}`,
+    `Next: ${sections.NEXT_CHECK || "?"}`,
+    sections.SPECIAL_NOTES ? `Notes: ${sections.SPECIAL_NOTES}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function readScheduleCandidateInputs(id) {
   return {
     time: normalizeKoreanTime(document.getElementById(`candidateTime-${id}`)?.value || ""),
@@ -1340,7 +1420,9 @@ function createInitialVisitFromDoctorChart(id) {
   }
 
   const text = item.ocrText || item.text || "";
-  const patientMatches = findPatientMatches(patientQuery, patientQuery);
+  const chartNumber = item.chartNumber || (/^\d/.test(patientQuery) ? patientQuery : "");
+  const patientNameFromChart = extractDoctorChartValue(item, ["patient_name"]) || item.patientHint || "";
+  const patientMatches = findPatientMatches(patientNameFromChart || patientQuery, chartNumber || patientQuery);
   if (patientMatches.length > 1) {
     item.needsReview = true;
     item.reviewReason = "동명이인 확인 필요";
@@ -1349,24 +1431,26 @@ function createInitialVisitFromDoctorChart(id) {
     render();
     return;
   }
-  let patient = findPatientByNameOrCode(patientQuery, patientQuery);
+  let patient = findPatientByNameOrCode(patientNameFromChart || patientQuery, chartNumber || patientQuery);
   if (!patient) {
     const nextNumber = String(state.patients.length + 1).padStart(3, "0");
+    const code = chartNumber || (patientQuery.startsWith("P") ? patientQuery : `P${nextNumber}`);
     patient = {
       id: uid("patient"),
-      code: patientQuery.startsWith("P") ? patientQuery : `P${nextNumber}`,
-      chartNumber: patientQuery.startsWith("P") ? patientQuery : `P${nextNumber}`,
-      name: patientQuery.startsWith("P") ? extractStructuredValue(text, ["patient_name"]) || "신규 환자" : patientQuery,
+      code,
+      chartNumber: code,
+      name: patientNameFromChart || (/^\d/.test(patientQuery) || patientQuery.startsWith("P") ? "신규 환자" : patientQuery),
       sex: "",
       age: "",
-      region: extractStructuredValue(text, ["pain_location"]) || inferRegion(text),
-      flags: extractStructuredValue(text, ["precautions_red_flags"]) || "",
+      region: extractDoctorChartValue(item, ["pain_location"]) || inferRegion(text),
+      flags: extractDoctorChartValue(item, ["precautions_red_flags"], "PRECAUTIONS") || extractSectionFromItem(item, "PRECAUTIONS"),
       createdAt: new Date().toISOString(),
     };
     state.patients.push(patient);
   } else {
-    patient.region = patient.region || extractStructuredValue(text, ["pain_location"]) || inferRegion(text);
-    patient.flags = patient.flags || extractStructuredValue(text, ["precautions_red_flags"]) || "";
+    patient.chartNumber = patient.chartNumber || chartNumber || patient.code;
+    patient.region = patient.region || extractDoctorChartValue(item, ["pain_location"]) || inferRegion(text);
+    patient.flags = patient.flags || extractDoctorChartValue(item, ["precautions_red_flags"], "PRECAUTIONS") || extractSectionFromItem(item, "PRECAUTIONS");
   }
 
   const visit = buildInitialVisitFromDoctorChart(item, patient, date);
@@ -1385,16 +1469,25 @@ function createInitialVisitFromDoctorChart(id) {
 
 function buildInitialVisitFromDoctorChart(item, patient, date) {
   const text = item.ocrText || item.text || "";
-  const chief = extractStructuredValue(text, ["chief_complaint", "chief complaint"]);
+  const chief = extractSectionFromItem(item, "CHIEF_COMPLAINT") || extractStructuredValue(text, ["chief_complaint", "chief complaint"]);
+  const medical = extractSectionFromItem(item, "MEDICAL_INFO") || extractStructuredValue(text, ["relevant_medical_info", "relevant medical info"]);
+  const precautions = extractSectionFromItem(item, "PRECAUTIONS") || extractStructuredValue(text, ["precautions_red_flags", "precautions/red flags"]);
+  const rawNotes = extractSectionFromItem(item, "RAW_NOTES");
+  const reviewNotes = extractSectionFromItem(item, "NEEDS_REVIEW");
+  const measurements = Array.isArray(item.measurements) ? item.measurements : [];
+  const measurementTracking = measurements.map((measurement) => ({
+    id: uid("track"),
+    name: measurement.name,
+    value: measurement.value || "?",
+    trend: "baseline",
+  }));
   const onset = extractStructuredValue(text, ["onset_history", "onset/history", "history"]);
   const pain = extractStructuredValue(text, ["pain_location", "pain location"]);
   const aggravating = extractStructuredValue(text, ["aggravating_factors", "aggravating factors"]);
   const easing = extractStructuredValue(text, ["easing_factors", "easing factors"]);
-  const medical = extractStructuredValue(text, ["relevant_medical_info", "relevant medical info"]);
-  const precautions = extractStructuredValue(text, ["precautions_red_flags", "precautions/red flags"]);
-  const initialSignal = extractStructuredValue(text, ["initial_signal", "initial signal"]);
-  const secondarySignal = extractStructuredValue(text, ["secondary_signal", "secondary signal"]);
-  const noise = extractStructuredValue(text, ["noise"]);
+  const initialSignal = extractStructuredValue(text, ["initial_signal", "initial signal"]) || chief;
+  const secondarySignal = extractStructuredValue(text, ["secondary_signal", "secondary signal"]) || medical;
+  const noise = extractStructuredValue(text, ["noise"]) || rawNotes;
   const tracking = splitStructuredList(extractStructuredValue(text, ["suggested_tracking_variables", "suggested tracking variables"]));
 
   const summary = [chief, onset, pain].filter(Boolean).join(" / ") || summarizeTranscript(text);
@@ -1421,11 +1514,11 @@ function buildInitialVisitFromDoctorChart(item, patient, date) {
     signals: signalList.length ? signalList : extractSignals(text).signals,
     secondarySignals: secondaryList,
     noise,
-    tracking: trackingItems.length ? trackingItems : inferTracking(text),
+    tracking: measurementTracking.length ? measurementTracking : trackingItems.length ? trackingItems : inferTracking(text),
     treatment: "",
     hep: "",
     homework: "",
-    nextFocus: [aggravating, easing, medical, precautions].filter(Boolean).join(" / "),
+    nextFocus: [aggravating, easing, medical, precautions, reviewNotes].filter(Boolean).join(" / "),
     draft: "",
     confirmed: false,
     matchStatus: "confirmed",
@@ -1459,6 +1552,16 @@ function extractStructuredValue(text, labels) {
     }
   }
   return "";
+}
+
+function extractDoctorChartValue(item, labels, preferredSection = "INITIAL_CHART") {
+  const sections = item.sections || {};
+  const sectionText = sections[preferredSection] || "";
+  return getStructuredLineValue(sectionText, labels) || extractStructuredValue(item.ocrText || item.text || "", labels);
+}
+
+function extractSectionFromItem(item, sectionName) {
+  return item.sections?.[normalizeSectionKey(sectionName)] || "";
 }
 
 function splitStructuredList(value) {
@@ -1673,49 +1776,69 @@ function findCalendarRecord(kind, id) {
 function renderWorkflowImportLanes() {
   return `
     <section class="workflow-import">
-      ${renderImportLane(importLanes.todaySchedule)}
-      ${renderImportLane(importLanes.tomorrowSchedule)}
+      ${renderImportLane(importLanes.combinedSchedule)}
+      ${renderImportLane(importLanes.transcriptCleanup)}
       ${renderImportLane(importLanes.doctorChart)}
     </section>
   `;
 }
 
 function renderExternalPromptPanel() {
+  const prompts = getPromptTemplates();
   return `
     <section class="prompt-panel">
       <div class="panel-header">
         <div>
           <h2>외부 AI 프롬프트</h2>
-          <p class="note">이미지나 원문은 ChatGPT/Claude/Gemini에서 정리하고, 결과만 아래 Import 칸에 붙여넣습니다.</p>
+          <p class="note">앱은 API를 직접 호출하지 않습니다. 프롬프트 복사 → 외부 AI 처리 → 결과 붙여넣기 흐름만 지원합니다.</p>
         </div>
       </div>
       <div class="prompt-grid">
-        ${renderPromptCard("schedule", "출력 예: 09:00 김시완 40")}
-        ${renderPromptCard("doctorChart", "출력 예: chief_complaint: ...")}
+        ${prompts.map(renderPromptCard).join("")}
       </div>
     </section>
   `;
 }
 
-function renderPromptCard(promptId, sample) {
-  const prompt = EXTERNAL_AI_PROMPTS[promptId];
+function getPromptTemplates() {
+  return Object.values(PROMPT_TEMPLATES);
+}
+
+function getPromptTemplate(promptId) {
+  return PROMPT_TEMPLATES[promptId] || getPromptTemplates().find((prompt) => prompt.id === promptId);
+}
+
+function renderPromptCard(prompt) {
   return `
     <article class="prompt-card">
       <div>
         <h3>${escapeHTML(prompt.title)}</h3>
         <p class="note">${escapeHTML(prompt.description)}</p>
-        <code>${escapeHTML(sample)}</code>
+        <code>${escapeHTML(prompt.expectedOutputFormat || prompt.sectionHeaders?.join(", ") || "")}</code>
       </div>
-      <button class="ghost-button" data-action="copy-import-prompt" data-prompt="${escapeHTML(promptId)}">Copy Prompt</button>
+      <button class="ghost-button" data-action="copy-import-prompt" data-prompt="${escapeHTML(prompt.id)}">Copy Prompt</button>
     </article>
   `;
 }
 
 function renderImportLane(lane) {
-  const isSchedule = lane.kind === "schedule";
-  const targetLabel = lane.targetRecordType === "visit" ? "Visit" : "Appointment";
-  const defaultStatus = isSchedule ? `${targetLabel} 후보 · 외부 AI 정리 텍스트 붙여넣기` : "초진 차트 · 후보 정리";
-  const placeholder = isSchedule ? "텍스트 붙여넣기" : "여기에 붙여넣기";
+  const isSchedule = lane.kind === "combined_schedule";
+  const isTranscriptCleanup = lane.kind === "transcript_cleanup";
+  const defaultStatus = {
+    combined_schedule: "[VISITS] / [APPOINTMENTS] 결과 붙여넣기",
+    transcript_cleanup: "외부 AI로 정리한 차트 section 붙여넣기",
+    doctor_chart: "초진 차트 OCR section 붙여넣기",
+  }[lane.kind] || "정리 텍스트 붙여넣기";
+  const placeholder = {
+    combined_schedule: "[VISITS]\n09:00 김시완 40\n\n[APPOINTMENTS]\n10:30 조선희 60",
+    transcript_cleanup: "[SUBJECTIVE]\n...\n\n[OBJECTIVE]\n...",
+    doctor_chart: "[INITIAL_CHART]\ndate:\npatient_name:\nchart_number:",
+  }[lane.kind] || "여기에 붙여넣기";
+  const badgeLabel = {
+    combined_schedule: "V + A",
+    transcript_cleanup: "Chart",
+    doctor_chart: "Initial",
+  }[lane.kind] || "Import";
   return `
     <article class="paste-lane" data-lane="${lane.key}" tabindex="0" aria-label="${escapeHTML(lane.title)} 붙여넣기">
       <div class="paste-lane-head">
@@ -1723,13 +1846,25 @@ function renderImportLane(lane) {
           <h2>${escapeHTML(lane.title)}</h2>
           <p class="note">${escapeHTML(lane.ocrStatus || defaultStatus)}</p>
         </div>
-        <span class="badge ${isSchedule ? "follow" : "new"}">${isSchedule ? escapeHTML(targetLabel) : "신환"}</span>
+        <span class="badge ${isSchedule ? "follow" : "new"}">${escapeHTML(badgeLabel)}</span>
       </div>
 
       <div class="paste-lane-controls">
         ${
-          isSchedule
-            ? `<input id="laneDate-${lane.key}" type="date" value="${escapeHTML(lane.date)}" />`
+          lane.kind === "combined_schedule"
+            ? `
+              <label class="compact-field">Visit 날짜
+                <input id="laneDate-${lane.key}" type="date" value="${escapeHTML(lane.date)}" />
+              </label>
+              <label class="compact-field">Appointment 날짜
+                <input id="laneAppointmentDate-${lane.key}" type="date" value="${escapeHTML(lane.appointmentDate || addDays(lane.date, 1))}" />
+              </label>
+            `
+            : isTranscriptCleanup
+              ? `
+                <input id="laneDate-${lane.key}" type="date" value="${escapeHTML(lane.date)}" />
+                <input id="lanePatient-${lane.key}" value="${escapeHTML(lane.patientHint)}" placeholder="환자명/코드 또는 비워두기" />
+              `
             : `<input id="lanePatient-${lane.key}" value="${escapeHTML(lane.patientHint)}" placeholder="환자명/코드" />`
         }
       </div>
@@ -1740,7 +1875,7 @@ function renderImportLane(lane) {
             ? `<div class="lane-image-preview"><img src="${lane.imagePreview}" alt="붙여넣은 이미지 미리보기" /><span>${escapeHTML(lane.imageName || "pasted image")}</span></div>`
             : `<div class="lane-placeholder">${escapeHTML(placeholder)}</div>`
         }
-        <textarea id="laneText-${lane.key}" placeholder="${isSchedule ? "예: 09:00 [도수(백한솔)] 김시완 [도수치료60]" : "OCR 텍스트 또는 초진 차트 텍스트"}">${escapeHTML(lane.text)}</textarea>
+        <textarea id="laneText-${lane.key}" placeholder="${escapeHTML(placeholder)}">${escapeHTML(lane.text)}</textarea>
       </div>
 
       <div class="paste-lane-actions">
@@ -1966,6 +2101,8 @@ function renderScheduleItem(item) {
 function renderInboxMatchCard(item) {
   if (item.type === "schedule_candidate") return renderScheduleCandidateCard(item);
   if (item.type === "doctor_chart") return renderDoctorChartCandidateCard(item);
+  if (item.type === "chart_cleanup") return renderChartCleanupCandidateCard(item);
+  if (item.type === "import_notes") return renderImportNotesCard(item);
 
   const match = item.type === "transcript" ? findBestRecordForInbox(item) : null;
   const matchName =
@@ -2000,27 +2137,76 @@ function renderInboxMatchCard(item) {
   `;
 }
 
+function renderChartCleanupCandidateCard(item) {
+  const match = findBestVisitForChartCleanup(item);
+  const sections = item.sections || {};
+  const sectionLabels = ["SUBJECTIVE", "OBJECTIVE", "TREATMENT", "HOMEWORK", "ASSESSMENT", "NEXT_CHECK", "SPECIAL_NOTES"]
+    .filter((key) => sections[key])
+    .slice(0, 4);
+  return `
+    <article class="item">
+      <div class="item-top">
+        <div>
+          <h3>차트 정리 후보</h3>
+          <div class="meta">${escapeHTML(item.recordedDate || todayISO())} · ${escapeHTML(item.patientHint || "환자 힌트 없음")}</div>
+        </div>
+        <span class="badge ${item.needsReview ? "warn" : "follow"}">${item.needsReview ? "검토 필요" : "sectioned"}</span>
+      </div>
+      <div class="badge-row">${sectionLabels.map((key) => `<span class="badge">${escapeHTML(key)}</span>`).join("")}</div>
+      ${
+        match
+          ? `<p class="note">추천 Visit: ${escapeHTML(match.time)} ${escapeHTML(getVisitPatientName(match))}</p>`
+          : `<p class="note">추천 Visit이 없습니다. 먼저 당일 Visit 후보를 확정해 주세요.</p>`
+      }
+      <div class="split-actions">
+        <button class="small-button" data-action="preview-inbox" data-id="${item.id}">보기</button>
+        ${match ? `<button class="primary-button" data-action="link-chart-cleanup-visit" data-id="${item.id}" data-visit="${match.id}">Visit 차트에 연결</button>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function renderImportNotesCard(item) {
+  return `
+    <article class="item">
+      <div class="item-top">
+        <div>
+          <h3>알 수 없는 section</h3>
+          <div class="meta">${escapeHTML(item.recordedDate || todayISO())} · ${escapeHTML(item.reviewReason || "검토 필요")}</div>
+        </div>
+        <span class="badge warn">raw</span>
+      </div>
+      <div class="transcript mini">${escapeHTML(item.text || "내용 없음")}</div>
+      <div class="split-actions">
+        <button class="small-button" data-action="preview-inbox" data-id="${item.id}">보기</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderDoctorChartCandidateCard(item) {
-  const suggestedName = item.patientHint || extractStructuredValue(item.ocrText || item.text || "", ["patient_name"]) || "";
+  const suggestedName = item.patientHint || extractDoctorChartValue(item, ["patient_name"]) || "";
+  const chartNumber = item.chartNumber || extractDoctorChartValue(item, ["chart_number"]) || "";
   return `
     <article class="item">
       <div class="item-top">
         <div>
           <h3>초진 요약 후보</h3>
-          <div class="meta">${escapeHTML(item.recordedDate || item.createdAt.slice(0, 10))} · ${escapeHTML(suggestedName || "환자명 확인")}</div>
+          <div class="meta">${escapeHTML(item.recordedDate || item.createdAt.slice(0, 10))} · ${escapeHTML(suggestedName || "환자명 확인")} · ${escapeHTML(chartNumber || "chart_number 확인")}</div>
         </div>
-        <span class="badge new">초진</span>
+        <span class="badge ${item.needsReview ? "warn" : "new"}">${item.needsReview ? "검토 필요" : "초진"}</span>
       </div>
       <div class="field-grid">
         <div class="field">
-          <label for="doctorPatient-${item.id}">환자명/코드</label>
-          <input id="doctorPatient-${item.id}" value="${escapeHTML(suggestedName)}" placeholder="우재이 또는 P001" />
+          <label for="doctorPatient-${item.id}">환자명 또는 chart_number</label>
+          <input id="doctorPatient-${item.id}" value="${escapeHTML(chartNumber || suggestedName)}" placeholder="33487 또는 우재이" />
         </div>
         <div class="field">
           <label for="doctorDate-${item.id}">초진일</label>
           <input id="doctorDate-${item.id}" type="date" value="${escapeHTML(item.recordedDate || todayISO())}" />
         </div>
       </div>
+      ${item.reviewReason ? `<p class="note">${escapeHTML(item.reviewReason)}</p>` : ""}
       <div class="transcript mini">${escapeHTML(item.ocrText || item.text || "정리 텍스트 없음")}</div>
       <div class="split-actions">
         <button class="small-button" data-action="preview-inbox" data-id="${item.id}">보기</button>
@@ -2671,6 +2857,7 @@ function attachEvents() {
     }
     if (action === "create-visit") createVisitFromInbox(id, target.dataset.schedule || null);
     if (action === "link-transcript-visit") linkTranscriptToVisit(id, target.dataset.visit);
+    if (action === "link-chart-cleanup-visit") linkChartCleanupToVisit(id, target.dataset.visit);
     if (action === "confirm-schedule-candidate") confirmScheduleCandidate(id);
     if (action === "discard-schedule-candidate") discardScheduleCandidate(id);
     if (action === "create-initial-visit") createInitialVisitFromDoctorChart(id);
@@ -2772,10 +2959,12 @@ function updateImportLaneFromDOM(laneKey) {
   const lane = importLanes[laneKey];
   if (!lane) return;
   const date = document.getElementById(`laneDate-${laneKey}`)?.value;
+  const appointmentDate = document.getElementById(`laneAppointmentDate-${laneKey}`)?.value;
   const therapist = document.getElementById(`laneTherapist-${laneKey}`)?.value.trim();
   const patientHint = document.getElementById(`lanePatient-${laneKey}`)?.value.trim();
   const text = document.getElementById(`laneText-${laneKey}`)?.value;
   if (date) lane.date = date;
+  if (appointmentDate) lane.appointmentDate = appointmentDate;
   if (therapist !== undefined) lane.therapist = therapist;
   if (patientHint !== undefined) lane.patientHint = patientHint;
   if (text !== undefined) lane.text = text;
@@ -2815,10 +3004,10 @@ async function handleImportLanePaste(event) {
     const file = imageItem.getAsFile();
     if (file) {
       updateImportLaneFromDOM(laneKey);
-      if (lane.kind === "schedule") {
+      if (lane.kind === "combined_schedule" || lane.kind === "transcript_cleanup") {
         lane.imageName = "";
         lane.imagePreview = "";
-        lane.ocrStatus = "스케줄 이미지는 외부 비전 AI로 정리한 텍스트를 붙여넣어 주세요.";
+        lane.ocrStatus = "이미지는 외부 AI에서 처리하고, 정리된 텍스트만 붙여넣어 주세요.";
       } else {
         const preview = await fileToDataURL(file);
         lane.imageName = file.name || `pasted-${new Date().toISOString()}.png`;
@@ -2845,6 +3034,7 @@ function clearImportLane(laneKey) {
   importLanes[laneKey] = {
     ...makeImportLane(laneKey),
     date: lane.date,
+    appointmentDate: lane.appointmentDate,
     therapist: lane.therapist,
   };
   render();
@@ -2858,8 +3048,8 @@ async function runLaneOcr(laneKey) {
     render();
     return;
   }
-  if (lane.kind === "schedule") {
-    lane.ocrStatus = "스케줄 이미지는 외부 비전 AI로 정리한 텍스트를 붙여넣어 주세요.";
+  if (lane.kind === "combined_schedule" || lane.kind === "transcript_cleanup") {
+    lane.ocrStatus = "이미지는 외부 AI에서 처리하고, 정리된 텍스트만 붙여넣어 주세요.";
     lane.imageName = "";
     lane.imagePreview = "";
     render();
@@ -3259,10 +3449,10 @@ function applyLearnedCorrectionToOpenFields(from, to) {
 }
 
 async function copyExternalPrompt(promptId) {
-  const prompt = EXTERNAL_AI_PROMPTS[promptId];
+  const prompt = getPromptTemplate(promptId);
   if (!prompt) return;
   try {
-    await navigator.clipboard.writeText(prompt.text);
+    await navigator.clipboard.writeText(prompt.promptText);
     toast(`${prompt.title}를 복사했습니다.`);
   } catch {
     toast("프롬프트 복사에 실패했습니다. 브라우저 권한을 확인해 주세요.");
@@ -3278,38 +3468,179 @@ function fileToDataURL(file) {
   });
 }
 
+function sectionsToObject(sections) {
+  return sections.reduce((memo, section) => {
+    memo[section.name] = section.text;
+    return memo;
+  }, {});
+}
+
+function makeUnknownSectionsInboxItem(sections, sourceFile, date) {
+  return {
+    id: uid("inbox"),
+    type: "import_notes",
+    fileName: "unknown_sections",
+    createdAt: new Date().toISOString(),
+    recordedDate: date || todayISO(),
+    sourceFile,
+    sections: sectionsToObject(sections),
+    text: sections.map((section) => `[${section.name}]\n${section.text}`).join("\n\n"),
+    status: "new",
+    matchStatus: "needs_review",
+    needsReview: true,
+    reviewReason: "알 수 없는 section 확인 필요",
+    matchedVisitId: null,
+  };
+}
+
+function makeTranscriptCleanupInboxItem(lane) {
+  const sections = parseSectionedText(lane.text);
+  const knownSections = [
+    "SUBJECTIVE",
+    "OBJECTIVE",
+    "TREATMENT",
+    "HOMEWORK",
+    "ASSESSMENT",
+    "NEXT_CHECK",
+    "SPECIAL_NOTES",
+  ];
+  const unknownSections = collectUnknownSections(sections, knownSections);
+  return {
+    id: uid("inbox"),
+    type: "chart_cleanup",
+    fileName: "transcript_cleanup_candidate",
+    createdAt: new Date().toISOString(),
+    recordedDate: lane.date || todayISO(),
+    recordedTime: nowTime(),
+    patientHint: lane.patientHint || "",
+    sourceFile: lane.sourceFile,
+    sections: sectionsToObject(sections),
+    text: lane.text,
+    correctedText: lane.text,
+    status: "new",
+    matchStatus: "suggested",
+    needsReview: unknownSections.length > 0,
+    reviewReason: unknownSections.length ? "알 수 없는 section 확인 필요" : "",
+    matchedVisitId: null,
+  };
+}
+
+function makeDoctorChartInboxItem(lane) {
+  const sections = parseSectionedText(lane.text);
+  const initialChart = getSectionText(sections, ["INITIAL_CHART"]);
+  const patientName = getStructuredLineValue(initialChart, ["patient_name", "patient name"]) || lane.patientHint || "";
+  const chartNumber = getStructuredLineValue(initialChart, ["chart_number", "chart number", "code"]) || "";
+  const date = normalizeDateText(getStructuredLineValue(initialChart, ["date", "초진일"])) || lane.date || todayISO();
+  const measurements = parseMeasurements(getSectionText(sections, ["MEASUREMENTS"]));
+  const patientMatches = findPatientMatches(patientName, chartNumber || patientName);
+  const needsReview = patientMatches.length > 1 || !chartNumber || !patientName || hasUncertainText(lane.text);
+  const reviewReason = [
+    patientMatches.length > 1 ? "동명이인 확인 필요" : "",
+    !chartNumber ? "chart_number 확인" : "",
+    !patientName ? "환자명 확인" : "",
+    hasUncertainText(lane.text) ? "불확실한 손글씨 확인" : "",
+  ].filter(Boolean).join(", ");
+
+  return {
+    id: uid("inbox"),
+    type: "doctor_chart",
+    fileName: "initial_chart_candidate",
+    createdAt: new Date().toISOString(),
+    recordedDate: date,
+    patientHint: patientName,
+    chartNumber,
+    patientId: patientMatches.length === 1 ? patientMatches[0].id : null,
+    sections: sectionsToObject(sections),
+    measurements,
+    ocrText: lane.text,
+    status: "new",
+    matchStatus: "suggested",
+    needsReview,
+    reviewReason,
+    matchedVisitId: null,
+  };
+}
+
+function getStructuredLineValue(text, labels) {
+  const normalizedLabels = labels.map((label) => normalizeSectionKey(label));
+  const lines = String(text || "").split(/\n+/);
+  for (const line of lines) {
+    const [key, ...rest] = line.split(":");
+    if (!rest.length) continue;
+    if (normalizedLabels.includes(normalizeSectionKey(key))) return rest.join(":").trim();
+  }
+  return "";
+}
+
+function normalizeDateText(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "?") return "";
+  const compact = raw.replace(/\D/g, "");
+  if (compact.length === 8) return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+  const match = raw.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!match) return "";
+  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+}
+
+function parseMeasurements(text) {
+  return String(text || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, ...rest] = line.split(":");
+      return {
+        id: uid("measure"),
+        name: name?.trim() || "measurement",
+        value: rest.join(":").trim() || "?",
+      };
+    })
+    .filter((item) => item.name);
+}
+
+function hasUncertainText(value) {
+  return /\?|\bunclear\b|불확실|확인/i.test(String(value || ""));
+}
+
 function processImportLane(laneKey, options = {}) {
   const auto = Boolean(options.auto);
   updateAllImportLanesFromDOM();
   const lane = importLanes[laneKey];
   if (!lane) return;
 
-  if (lane.kind === "schedule") {
+  if (lane.kind === "combined_schedule") {
     const sourceFile = lane.sourceFile;
-    const targetRecordType = lane.targetRecordType || (lane.key === "todaySchedule" ? "visit" : "appointment");
-    const candidates = parseSmartCrmScheduleCandidates(
-      lane.text,
-      lane.date,
-      lane.therapist,
+    const result = parseCombinedScheduleImport(lane.text, {
+      visitDate: lane.date,
+      appointmentDate: lane.appointmentDate || addDays(lane.date, 1),
+      therapist: lane.therapist,
       sourceFile,
-      targetRecordType,
-    );
+    });
+    const candidates = result.candidates;
 
     if (!candidates.length) {
       toast(
         lane.imagePreview
-          ? "OCR은 끝났지만 스케줄 시간/환자명을 읽지 못했습니다. 텍스트를 확인해 주세요."
-          : "스케줄 후보로 읽을 수 있는 시간이 없습니다.",
+          ? "OCR은 끝났지만 [VISITS]/[APPOINTMENTS]에서 시간/환자명을 읽지 못했습니다."
+          : "[VISITS] 또는 [APPOINTMENTS] section에서 읽을 수 있는 시간이 없습니다.",
       );
       lane.ocrStatus = "반영 실패, 텍스트 확인 필요";
       render();
       return;
     }
 
+    const importNotes = result.unknownSections.length
+      ? [makeUnknownSectionsInboxItem(result.unknownSections, sourceFile, lane.date)]
+      : [];
+
     state.rawInbox = [
       ...candidates,
+      ...importNotes,
       ...state.rawInbox.filter((item) => {
-        return !(item.type === "schedule_candidate" && item.recordedDate === lane.date && item.sourceFile === sourceFile);
+        return !(
+          item.sourceFile?.startsWith(sourceFile) &&
+          ["schedule_candidate", "import_notes"].includes(item.type)
+        );
       }),
     ];
     dashboardWeekStart = getWeekStartISO(lane.date);
@@ -3319,7 +3650,29 @@ function processImportLane(laneKey, options = {}) {
     lane.screenshotCount = 0;
     lane.ocrStatus = "";
     saveState();
-    toast(`${lane.title}: ${targetRecordType === "visit" ? "Visit" : "Appointment"} 후보 ${candidates.length}개를 Inbox에 만들었습니다.`);
+    toast(`${lane.title}: Visit/Appointment 후보 ${candidates.length}개를 Inbox에 만들었습니다.`);
+    if (currentView !== "inbox") setView("inbox");
+    else render();
+    return;
+  }
+
+  if (lane.kind === "transcript_cleanup") {
+    if (!lane.text.trim()) {
+      toast("정리된 transcript section 텍스트가 필요합니다.");
+      lane.ocrStatus = "반영 실패, 텍스트 확인 필요";
+      render();
+      return;
+    }
+
+    const item = makeTranscriptCleanupInboxItem(lane);
+    state.rawInbox.unshift(item);
+    lane.text = "";
+    lane.patientHint = "";
+    lane.imageName = "";
+    lane.imagePreview = "";
+    lane.ocrStatus = "";
+    saveState();
+    toast("정리된 차트 후보를 Inbox에 만들었습니다.");
     if (currentView !== "inbox") setView("inbox");
     else render();
     return;
@@ -3337,20 +3690,7 @@ function processImportLane(laneKey, options = {}) {
       return;
     }
 
-    const patient = findPatientByNameOrCode(lane.patientHint, lane.patientHint);
-
-    state.rawInbox.unshift({
-      id: uid("inbox"),
-      type: "doctor_chart",
-      fileName: "initial_chart_candidate",
-      createdAt: new Date().toISOString(),
-      recordedDate: lane.date,
-      patientHint: lane.patientHint,
-      patientId: patient?.id || null,
-      ocrText: lane.text,
-      status: "new",
-      matchedVisitId: null,
-    });
+    state.rawInbox.unshift(makeDoctorChartInboxItem(lane));
 
     lane.text = "";
     lane.patientHint = "";
@@ -3421,20 +3761,12 @@ async function handleDoctorChartForm(form) {
   const patientQuery = form.querySelector("#doctorChartPatient").value.trim();
   const file = form.querySelector("#doctorChartImage").files[0];
   const text = form.querySelector("#doctorChartText").value.trim();
-  const patient = findPatientByNameOrCode(patientQuery, patientQuery);
-
-  state.rawInbox.unshift({
-    id: uid("inbox"),
-    type: "doctor_chart",
-    fileName: "initial_chart_candidate",
-    createdAt: new Date().toISOString(),
-    recordedDate: todayISO(),
+  state.rawInbox.unshift(makeDoctorChartInboxItem({
+    text,
     patientHint: patientQuery,
-    patientId: patient?.id || null,
-    ocrText: text,
-    status: "new",
-    matchedVisitId: null,
-  });
+    date: todayISO(),
+    sourceFile: file?.name || "doctor chart paste",
+  }));
 
   saveState();
   form.reset();
@@ -3739,10 +4071,14 @@ function mapCloudInboxRow(row) {
     visitType: row.visit_type || "재진",
     text: row.raw_text || row.ocr_text || "",
     correctedText: row.corrected_text || row.raw_text || row.ocr_text || "",
+    sections: row.sections || {},
+    measurements: row.measurements || [],
     status: "new",
     patientId: row.patient_id || null,
     appointmentId: row.appointment_id || null,
     matchStatus: row.match_status || "suggested",
+    needsReview: Boolean(row.needs_review),
+    reviewReason: row.review_reason || "",
     matchedVisitId: null,
   };
 }
