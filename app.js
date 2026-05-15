@@ -1839,6 +1839,7 @@ function renderImportLane(lane) {
     transcript_cleanup: "Chart",
     doctor_chart: "Initial",
   }[lane.kind] || "Import";
+  const promptId = getPromptIdForLane(lane);
   return `
     <article class="paste-lane" data-lane="${lane.key}" tabindex="0" aria-label="${escapeHTML(lane.title)} 붙여넣기">
       <div class="paste-lane-head">
@@ -1846,7 +1847,7 @@ function renderImportLane(lane) {
           <h2>${escapeHTML(lane.title)}</h2>
           <p class="note">${escapeHTML(lane.ocrStatus || defaultStatus)}</p>
         </div>
-        <span class="badge ${isSchedule ? "follow" : "new"}">${escapeHTML(badgeLabel)}</span>
+        <button class="badge prompt-badge-button ${isSchedule ? "follow" : "new"}" type="button" data-action="copy-import-prompt" data-prompt="${escapeHTML(promptId)}" title="${escapeHTML(badgeLabel)} 프롬프트 복사">${escapeHTML(badgeLabel)}</button>
       </div>
 
       <div class="paste-lane-controls">
@@ -1884,6 +1885,14 @@ function renderImportLane(lane) {
       </div>
     </article>
   `;
+}
+
+function getPromptIdForLane(lane) {
+  return {
+    combined_schedule: "scheduleCombined",
+    transcript_cleanup: "transcriptCleanup",
+    doctor_chart: "doctorInitialChart",
+  }[lane.kind] || "scheduleCombined";
 }
 
 function renderWeeklyCalendar(weekDates, appointments, visits, mode = "split") {
