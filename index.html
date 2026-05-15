@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clinical Memory Assistant</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">CM</div>
+          <div>
+            <strong>Clinical Memory</strong>
+            <span>PT assistant</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="주요 화면">
+          <button class="nav-item active" data-view="dashboard">오늘</button>
+          <button class="nav-item" data-view="inbox">Import Inbox</button>
+          <button class="nav-item" data-view="patients">환자</button>
+          <button class="nav-item" data-view="visits">방문 기록</button>
+          <button class="nav-item" data-view="terms">용어 사전</button>
+          <button class="nav-item" data-view="settings">설정</button>
+        </nav>
+
+        <div class="sync-card">
+          <span class="status-dot"></span>
+          <div>
+            <strong>Local mode</strong>
+            <span>Supabase 연결 전</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h1 id="viewTitle">오늘</h1>
+            <p id="viewSubtitle">스케줄, 녹음, 차트 초안을 한 번에 확인합니다.</p>
+          </div>
+          <div class="topbar-actions">
+            <input id="globalSearch" type="search" placeholder="환자, 증상, 기록 검색" />
+            <button class="ghost-button" id="exportDataButton" title="JSON 내보내기">Export</button>
+            <label class="ghost-button import-label" title="JSON 가져오기">
+              Import
+              <input id="importDataInput" type="file" accept="application/json" />
+            </label>
+          </div>
+        </header>
+
+        <section class="view active" id="dashboardView"></section>
+        <section class="view" id="inboxView"></section>
+        <section class="view" id="patientsView"></section>
+        <section class="view" id="visitsView"></section>
+        <section class="view" id="termsView"></section>
+        <section class="view" id="settingsView"></section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <template id="emptyStateTemplate">
+      <div class="empty-state">
+        <strong></strong>
+        <span></span>
+      </div>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="./config.public.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
