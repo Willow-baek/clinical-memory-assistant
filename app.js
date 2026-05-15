@@ -298,13 +298,18 @@ function renderSyncStatus() {
   const dot = document.getElementById("syncStatusDot");
   const mode = document.getElementById("syncModeLabel");
   const detail = document.getElementById("syncDetailLabel");
+  const button = document.getElementById("sidebarAuthButton");
   if (!dot || !mode || !detail) return;
 
   const signedIn = Boolean(supabaseSession?.access_token);
   const stateName = signedIn ? syncStatus.state || "ready" : "local";
   dot.className = `status-dot ${stateName}`;
-  mode.textContent = signedIn ? "Cloud sync" : "Local mode";
-  detail.textContent = signedIn ? syncStatus.message || "클라우드 연결됨" : "Supabase 로그인 필요";
+  mode.textContent = signedIn ? supabaseSession.user?.email || "Logged in" : "Logged out";
+  detail.textContent = signedIn ? syncStatus.message || "클라우드 연결됨" : "로그인 필요";
+  if (button) {
+    button.textContent = signedIn ? "로그아웃" : "로그인";
+    button.dataset.action = signedIn ? "supabase-signout" : "open-settings";
+  }
 }
 
 function isEditingDataField() {
@@ -1353,12 +1358,30 @@ function renderWeeklyCalendar(weekDates, scheduleItems) {
 
 function renderCalendarAppointment(item) {
   const patient = findPatientByNameOrCode(item.patientName, item.patientCode);
+  const durationClass = getScheduleDurationClass(item);
+  const durationLabel = getScheduleDurationMinutes(item);
   return `
-    <button class="appointment-button ${item.id === selectedScheduleId ? "selected" : ""} ${item.visitType === "초진" ? "initial" : "followup"}" data-action="select-schedule" data-id="${item.id}">
+    <button class="appointment-button ${item.id === selectedScheduleId ? "selected" : ""} ${item.visitType === "초진" ? "initial" : "followup"} ${durationClass}" data-action="select-schedule" data-id="${item.id}">
       <span>${escapeHTML(item.time)} · ${escapeHTML(item.patientName)}</span>
-      <small>${escapeHTML(item.patientCode || patient?.code || item.visitType)} · ${escapeHTML(item.note || item.visitType)}</small>
+      <small>${escapeHTML(item.patientCode || patient?.code || item.visitType)} · ${escapeHTML(item.note || (durationLabel ? `${durationLabel}분` : item.visitType))}</small>
     </button>
   `;
+}
+
+function getScheduleDurationMinutes(item) {
+  const explicit = Number(item.durationMinutes);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const noteMatch = String(item.note || "").match(/(\d{2,3})\s*분?/);
+  const fromNote = noteMatch ? Number(noteMatch[1]) : 0;
+  return Number.isFinite(fromNote) && fromNote > 0 ? fromNote : 0;
+}
+
+function getScheduleDurationClass(item) {
+  const duration = getScheduleDurationMinutes(item);
+  if (duration >= 55) return "duration-60";
+  if (duration >= 38) return "duration-40";
+  if (duration >= 25) return "duration-30";
+  return "duration-unknown";
 }
 
 function renderScheduleHistoryPanel(scheduleItem) {
@@ -2059,6 +2082,7 @@ function attachEvents() {
     const id = target.dataset.id;
 
     if (action === "go-inbox") setView("inbox");
+    if (action === "open-settings") setView("settings");
     if (action === "lane-clear") clearImportLane(target.dataset.lane);
     if (action === "lane-process") processImportLane(target.dataset.lane);
     if (action === "capture-selection") captureLearningSelection();

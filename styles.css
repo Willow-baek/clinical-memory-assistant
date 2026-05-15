@@ -109,12 +109,41 @@ button {
 
 .sync-card {
   margin-top: auto;
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: 10px;
   padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sync-status-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-card strong,
+.sync-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-auth-button {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: #223033;
+  color: #eef4f4;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sidebar-auth-button:hover {
+  background: #2b3a3d;
 }
 
 .status-dot {
@@ -772,6 +801,22 @@ select:focus {
   border-left-color: var(--accent);
 }
 
+.appointment-button.duration-30 {
+  min-height: 42px;
+}
+
+.appointment-button.duration-40 {
+  min-height: 56px;
+}
+
+.appointment-button.duration-60 {
+  min-height: 82px;
+}
+
+.appointment-button.duration-unknown {
+  min-height: 0;
+}
+
 .appointment-button span {
   font-size: 13px;
   font-weight: 800;
@@ -963,9 +1008,24 @@ select:focus {
     gap: 12px;
   }
 
-  .brand,
-  .sync-card {
+  .brand {
     display: none;
+  }
+
+  .sync-card {
+    margin-top: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 9px 10px;
+  }
+
+  .sync-status-row {
+    min-width: 0;
+  }
+
+  .sidebar-auth-button {
+    width: auto;
+    padding: 7px 10px;
   }
 
   .nav {
