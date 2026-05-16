@@ -1231,9 +1231,10 @@ select:focus {
 .calendar-header {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 20;
   background: #f5f4f1;
   border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line);
 }
 
 .calendar-corner,
@@ -1354,7 +1355,7 @@ select:focus {
   margin-top: calc(var(--start-offset-slots, 0) * var(--calendar-row-height));
   padding: 7px 8px 6px;
   position: relative;
-  z-index: 3;
+  z-index: 1;
   text-align: left;
   white-space: normal;
   overflow: hidden;
