@@ -8,8 +8,8 @@
   --accent: #6B6B32;
   --accent-strong: #525226;
   --accent-light: #E4E4C0;
-  --sidebar-bg: #F0EEE9;
-  --sidebar-hover: #E4E2DC;
+  --sidebar-bg: #1a0f0a;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
   --sidebar-active: #3D3D3A;
   --mint: #d9f1e7;
   --amber: #f6e0a6;
@@ -276,8 +276,8 @@ body.chatgpt-workflow-open .sidebar-compact {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #ffffff;
-  opacity: 0.6;
+  color: rgba(255, 255, 255, 0.35);
+  opacity: 1;
   padding: 8px;
   text-align: left;
   font-size: 13px;
@@ -290,22 +290,22 @@ body.chatgpt-workflow-open .sidebar-compact {
   gap: 0;
   overflow: hidden;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .nav-item:hover,
 .sidebar-action:hover {
   background: transparent;
-  color: #ffffff;
+  color: rgba(255, 255, 255, 0.75);
   opacity: 1;
 }
 
 .nav-item.active {
-  background: #7D946D;
+  background: #5c7a5c;
   color: #ffffff;
   opacity: 1;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(125, 148, 109, 0.35);
+  box-shadow: 0 2px 8px rgba(92, 122, 92, 0.4);
 }
 
 /* Icon abbreviation (always visible) */
@@ -320,33 +320,36 @@ body.chatgpt-workflow-open .sidebar-compact {
   font-weight: 700;
 }
 
-/* Label text: revealed on sidebar hover */
+/* Nav labels hidden — icon only */
 .nav-item span,
 .sidebar-action span {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  max-width: 0;
-  opacity: 0;
-  margin-left: 0;
-  transition: max-width 0.2s ease, opacity 0.15s ease, margin-left 0.2s ease;
+  display: none;
 }
 
 .sidebar:hover .nav-item,
 .sidebar:hover .sidebar-action {
-  justify-content: flex-start;
-  padding-left: 10px;
-}
-
-.sidebar:hover .nav-item span,
-.sidebar:hover .sidebar-action span {
-  max-width: 120px;
-  opacity: 1;
-  margin-left: 4px;
+  justify-content: center;
+  padding-left: 8px;
 }
 
 .tool-item {
-  border: 1px solid var(--line);
+  border: 0;
+}
+
+/* Dividers: between Inbox/Patients and Insights/Settings */
+.nav-item[data-view="patients"],
+.nav-item[data-view="settings"] {
+  margin-top: 8px;
+}
+
+.nav-item[data-view="patients"]:not(.active),
+.nav-item[data-view="settings"]:not(.active) {
+  box-shadow: 0 -5px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+.nav-item[data-view="patients"].active,
+.nav-item[data-view="settings"].active {
+  box-shadow: 0 2px 8px rgba(92, 122, 92, 0.4), 0 -5px 0 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ===== AI SIDEBAR PANEL ===== */
