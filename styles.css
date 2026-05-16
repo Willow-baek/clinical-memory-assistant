@@ -654,7 +654,7 @@ select:focus {
 
 .primary-button {
   background: var(--accent);
-  color: var(--accent-light);
+  color: #fff;
 }
 
 .primary-button:hover {
@@ -1046,14 +1046,99 @@ select:focus {
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
   gap: 14px;
   align-items: start;
 }
 
 .dashboard-side {
   display: grid;
-  gap: 14px;
+  gap: 10px;
+  align-self: start;
+  max-height: calc(100vh - 126px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.dashboard-import {
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.dashboard-import .paste-lane {
+  gap: 6px;
+  padding: 10px;
+  box-shadow: none;
+}
+
+.dashboard-import .paste-lane-head {
+  align-items: center;
+}
+
+.dashboard-import .paste-lane-head h2 {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.dashboard-import .paste-lane-head .note {
+  display: none;
+}
+
+.dashboard-import .paste-lane-controls {
+  grid-template-columns: 1fr;
+  gap: 5px;
+}
+
+.dashboard-import .compact-field {
+  font-size: 10px;
+}
+
+.dashboard-import .paste-lane-controls input {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.dashboard-import .paste-lane-drop {
+  grid-template-columns: 1fr;
+  padding: 6px;
+}
+
+.dashboard-import .lane-placeholder,
+.dashboard-import .lane-image-preview {
+  display: none;
+}
+
+.dashboard-import .paste-lane textarea {
+  min-height: 48px;
+  font-size: 12px;
+}
+
+.dashboard-import .paste-lane-actions {
+  gap: 6px;
+}
+
+.dashboard-import .paste-lane-actions .primary-button,
+.dashboard-import .paste-lane-actions .ghost-button {
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.dashboard-side .panel-header {
+  padding: 12px 14px;
+}
+
+.dashboard-side .panel-header h2 {
+  font-size: 18px;
+}
+
+.dashboard-side .panel-body {
+  padding: 12px 14px;
+}
+
+.dashboard-side .empty-state {
+  padding: 18px 14px;
+  font-size: 13px;
 }
 
 /* ===== CALENDAR ===== */
@@ -1096,7 +1181,7 @@ select:focus {
 
 .weekly-calendar-wrap {
   overflow: auto;
-  max-height: calc(100vh - 260px);
+  max-height: calc(100vh - 210px);
 }
 
 .weekly-calendar {
@@ -1283,6 +1368,18 @@ select:focus {
   gap: 12px;
 }
 
+.dashboard-side .history-panel .panel-body {
+  gap: 9px;
+}
+
+.dashboard-side .patient-brief {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-side .patient-brief div {
+  padding: 8px;
+}
+
 .patient-brief {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1318,6 +1415,11 @@ select:focus {
   max-height: 52vh;
   overflow: auto;
   padding-right: 2px;
+}
+
+.dashboard-side .history-list {
+  gap: 8px;
+  max-height: 28vh;
 }
 
 .history-visit {
@@ -1577,9 +1679,16 @@ select:focus {
   .summary-strip,
   .patient-brief,
   .prompt-grid,
+  .workflow-import,
   .field-grid,
   .field-grid.three {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-side {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .learning-head {

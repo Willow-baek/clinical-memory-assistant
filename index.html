@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260516-ai-workspace" />
+    <link rel="stylesheet" href="./styles.css?v=20260516-dashboard-compact" />
   </head>
   <body>
     <div class="app-shell">
@@ -67,7 +67,7 @@
           <div class="ai-sidebar-section grow">
             <h3>2. 결과 붙여넣기</h3>
             <textarea id="aiWorkflowResult" placeholder="[VISITS] 또는 [SUBJECTIVE] 또는 [INITIAL_CHART] 결과를 붙여넣기"></textarea>
-            <button class="primary-button" data-action="process-ai-workflow-result">Import로 반영</button>
+            <button class="primary-button" data-action="process-ai-workflow-result">Apply Import</button>
           </div>
         </section>
       </aside>
@@ -80,8 +80,8 @@
           </div>
           <div class="topbar-actions">
             <input id="globalSearch" type="search" placeholder="환자, 증상, 기록 검색" />
-            <button class="primary-button sync-top-button" data-action="supabase-upload" title="현재 데이터를 클라우드에 저장">클라우드 저장</button>
-            <button class="ghost-button sync-top-button" data-action="supabase-download" title="최신 클라우드 데이터를 불러오기">불러오기</button>
+            <button class="primary-button sync-top-button" data-action="supabase-upload" title="Save current data to cloud">Cloud Save</button>
+            <button class="ghost-button sync-top-button" data-action="supabase-download" title="Load latest cloud data">Load</button>
             <button class="ghost-button" id="exportDataButton" title="JSON 내보내기">Export</button>
             <label class="ghost-button import-label" title="JSON 가져오기">
               Import
@@ -111,6 +111,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="./config.public.js"></script>
     <script src="./prompt-templates.js?v=20260516-chatgpt-workflow"></script>
-    <script src="./app.js?v=20260516-ai-workspace"></script>
+    <script src="./app.js?v=20260516-dashboard-compact"></script>
   </body>
 </html>

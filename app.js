@@ -1720,7 +1720,6 @@ function renderDashboard(query = "") {
   }
 
   container.innerHTML = `
-    ${renderWorkflowImportLanes()}
     <div class="dashboard-layout">
       <section class="panel weekly-panel">
         <div class="panel-header">
@@ -1747,6 +1746,7 @@ function renderDashboard(query = "") {
       </section>
 
       <div class="dashboard-side">
+        ${renderWorkflowImportLanes("dashboard-import")}
         ${renderScheduleHistoryPanel(selectedRecord?.item || null, selectedRecord?.kind || "appointment")}
         <section class="panel">
           <div class="panel-header">
@@ -1786,9 +1786,9 @@ function findCalendarRecord(kind, id) {
   return appointment ? { kind: "appointment", item: appointment } : null;
 }
 
-function renderWorkflowImportLanes() {
+function renderWorkflowImportLanes(extraClass = "") {
   return `
-    <section class="workflow-import">
+    <section class="workflow-import ${escapeHTML(extraClass)}">
       ${renderImportLane(importLanes.combinedSchedule)}
       ${renderImportLane(importLanes.transcriptCleanup)}
       ${renderImportLane(importLanes.doctorChart)}
@@ -1893,8 +1893,8 @@ function renderImportLane(lane) {
       </div>
 
       <div class="paste-lane-actions">
-        <button class="primary-button" data-action="lane-process" data-lane="${lane.key}">반영</button>
-        <button class="ghost-button" data-action="lane-clear" data-lane="${lane.key}">비우기</button>
+        <button class="primary-button" data-action="lane-process" data-lane="${lane.key}">Apply</button>
+        <button class="ghost-button" data-action="lane-clear" data-lane="${lane.key}">Clear</button>
       </div>
     </article>
   `;
@@ -2723,9 +2723,9 @@ function renderSettings() {
             <div class="row wrap">
               <button class="primary-button" type="submit">로그인</button>
               <button class="ghost-button" type="button" data-action="supabase-signup">계정 만들기</button>
-              <button class="ghost-button" type="button" data-action="supabase-upload">클라우드 저장</button>
-              <button class="ghost-button" type="button" data-action="supabase-download">최신 데이터 불러오기</button>
-              <button class="ghost-button" type="button" data-action="supabase-import-inbox">클라우드 Inbox 가져오기</button>
+              <button class="ghost-button" type="button" data-action="supabase-upload">Cloud Save</button>
+              <button class="ghost-button" type="button" data-action="supabase-download">Load Latest</button>
+              <button class="ghost-button" type="button" data-action="supabase-import-inbox">Load Cloud Inbox</button>
               <button class="danger-button" type="button" data-action="supabase-signout">로그아웃</button>
             </div>
           </form>
