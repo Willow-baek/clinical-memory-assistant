@@ -1046,7 +1046,7 @@ select:focus {
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+  grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -1064,6 +1064,38 @@ select:focus {
   grid-template-columns: 1fr;
   gap: 8px;
   margin-bottom: 0;
+}
+
+.workflow-import-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+
+.workflow-import-toggle span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflow-import-toggle strong {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.workflow-import-toggle:hover {
+  border-color: var(--line-strong);
+  background: #faf9f7;
 }
 
 .dashboard-import .paste-lane {
@@ -1185,13 +1217,13 @@ select:focus {
 }
 
 .weekly-calendar {
-  min-width: 1040px;
+  min-width: 680px;
 }
 
 .calendar-header,
 .calendar-row {
   display: grid;
-  grid-template-columns: 72px repeat(7, minmax(132px, 1fr));
+  grid-template-columns: 72px repeat(3, minmax(190px, 1fr));
 }
 
 .calendar-header {
@@ -1214,6 +1246,12 @@ select:focus {
 .calendar-day {
   min-height: 54px;
   padding: 9px 10px;
+}
+
+.calendar-day {
+  display: grid;
+  place-items: center;
+  text-align: center;
 }
 
 .calendar-corner {
@@ -1243,6 +1281,15 @@ select:focus {
   background: var(--accent-light);
 }
 
+.calendar-day.off-day {
+  background: #eeece8;
+  color: var(--muted);
+}
+
+.calendar-day.today.off-day {
+  background: #dedccf;
+}
+
 .calendar-time {
   display: grid;
   place-items: start center;
@@ -1257,6 +1304,14 @@ select:focus {
   min-height: 58px;
   padding: 5px;
   background: #fff;
+}
+
+.calendar-cell.off-day {
+  background: #f3f2ef;
+}
+
+.calendar-cell.off-day:empty {
+  background: #f0efeb;
 }
 
 .split-calendar-cell {

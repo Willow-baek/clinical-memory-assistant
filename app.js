@@ -126,9 +126,10 @@ let syncStatus = {
 let currentView = "dashboard";
 let selectedPatientId = state.patients[0]?.id || null;
 let selectedVisitId = null;
-let dashboardWeekStart = getWeekStartISO(todayISO());
+let dashboardWeekStart = todayISO();
 let selectedCalendarKind = getAppointments()[0]?.id ? "appointment" : "visit";
 let selectedScheduleId = getAppointments()[0]?.id || state.visits[0]?.id || null;
+let dashboardImportOpen = false;
 let importLanes = {
   combinedSchedule: makeImportLane("combinedSchedule"),
   transcriptCleanup: makeImportLane("transcriptCleanup"),
@@ -483,8 +484,12 @@ function getWeekDates(weekStartISO) {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStartISO, index));
 }
 
+function getThreeDayDates(startDateISO) {
+  return Array.from({ length: 3 }, (_, index) => addDays(startDateISO, index));
+}
+
 function formatWeekRange(weekDates) {
-  return `${formatKoreanDate(weekDates[0])} - ${formatKoreanDate(weekDates[6])}`;
+  return `${formatKoreanDate(weekDates[0])} - ${formatKoreanDate(weekDates[weekDates.length - 1])}`;
 }
 
 function formatKoreanDate(dateISO) {
@@ -495,6 +500,11 @@ function formatKoreanDate(dateISO) {
 function formatWeekday(dateISO) {
   const date = parseISODate(dateISO);
   return ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+}
+
+function isOffWorkday(dateISO) {
+  const day = parseISODate(dateISO).getDay();
+  return day === 0 || day === 4;
 }
 
 function makeTimeSlots() {
@@ -1735,8 +1745,7 @@ function render() {
 
 function renderDashboard(query = "") {
   const container = document.getElementById("dashboardView");
-  const today = todayISO();
-  const weekDates = getWeekDates(dashboardWeekStart);
+  const weekDates = getThreeDayDates(dashboardWeekStart);
   const appointmentsWeek = getAppointments()
     .filter((item) => weekDates.includes(item.date))
     .filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query))
@@ -1768,7 +1777,7 @@ function renderDashboard(query = "") {
       <section class="panel weekly-panel">
         <div class="panel-header">
           <div>
-            <h2>주간 스케줄</h2>
+            <h2>3일 스케줄</h2>
             <p class="note">${formatWeekRange(weekDates)} · Appointment는 예정, Visit은 실제 치료/마감 기록</p>
           </div>
           <div class="calendar-toolbar">
@@ -1778,9 +1787,9 @@ function renderDashboard(query = "") {
               ${renderCalendarModeButton("split", "Split", calendarMode)}
             </div>
             <div class="row wrap">
-              <button class="small-button" data-action="prev-week">이전 주</button>
-              <button class="small-button" data-action="this-week">이번 주</button>
-              <button class="small-button" data-action="next-week">다음 주</button>
+              <button class="small-button" data-action="prev-week">이전 3일</button>
+              <button class="small-button" data-action="this-week">오늘</button>
+              <button class="small-button" data-action="next-week">다음 3일</button>
             </div>
           </div>
         </div>
@@ -1790,8 +1799,8 @@ function renderDashboard(query = "") {
       </section>
 
       <div class="dashboard-side">
-        ${renderWorkflowImportLanes("dashboard-import")}
         ${renderScheduleHistoryPanel(selectedRecord?.item || null, selectedRecord?.kind || "appointment")}
+        ${renderWorkflowImportLanes("dashboard-import", { collapsible: true, open: dashboardImportOpen })}
         <section class="panel">
           <div class="panel-header">
             <h2>매칭 대기</h2>
@@ -1830,12 +1839,30 @@ function findCalendarRecord(kind, id) {
   return appointment ? { kind: "appointment", item: appointment } : null;
 }
 
-function renderWorkflowImportLanes(extraClass = "") {
+function renderWorkflowImportLanes(extraClass = "", options = {}) {
+  const isCollapsible = Boolean(options.collapsible);
+  const isOpen = !isCollapsible || Boolean(options.open);
   return `
-    <section class="workflow-import ${escapeHTML(extraClass)}">
-      ${renderImportLane(importLanes.combinedSchedule)}
-      ${renderImportLane(importLanes.transcriptCleanup)}
-      ${renderImportLane(importLanes.doctorChart)}
+    <section class="workflow-import ${escapeHTML(extraClass)} ${isCollapsible ? "workflow-import-collapsible" : ""} ${isOpen ? "is-open" : "is-collapsed"}">
+      ${
+        isCollapsible
+          ? `
+            <button class="workflow-import-toggle" type="button" data-action="toggle-dashboard-import" aria-expanded="${isOpen ? "true" : "false"}">
+              <span>Import slots</span>
+              <strong>${isOpen ? "Hide" : "Open"}</strong>
+            </button>
+          `
+          : ""
+      }
+      ${
+        isOpen
+          ? `
+            ${renderImportLane(importLanes.combinedSchedule)}
+            ${renderImportLane(importLanes.transcriptCleanup)}
+            ${renderImportLane(importLanes.doctorChart)}
+          `
+          : ""
+      }
     </section>
   `;
 }
@@ -1956,6 +1983,7 @@ function renderWeeklyCalendar(weekDates, appointments, visits, mode = "split") {
   const slots = makeTimeSlots();
   const appointmentBySlot = new Map();
   const visitBySlot = new Map();
+  const calendarColumns = `72px repeat(${weekDates.length}, minmax(190px, 1fr))`;
 
   appointments.forEach((item) => {
     const slot = slotFromTime(item.time);
@@ -1976,23 +2004,23 @@ function renderWeeklyCalendar(weekDates, appointments, visits, mode = "split") {
   return `
     <div class="weekly-calendar-wrap">
       <div class="weekly-calendar">
-        <div class="calendar-header">
+        <div class="calendar-header" style="grid-template-columns: ${calendarColumns};">
           <div class="calendar-corner">시간</div>
           ${weekDates.map((date) => `
-            <div class="calendar-day ${date === todayISO() ? "today" : ""}">
+            <div class="calendar-day ${date === todayISO() ? "today" : ""} ${isOffWorkday(date) ? "off-day" : ""}">
               <strong>${formatWeekday(date)}</strong>
               <span>${formatKoreanDate(date)}</span>
             </div>
           `).join("")}
         </div>
         ${slots.map((slot) => `
-          <div class="calendar-row">
+          <div class="calendar-row" style="grid-template-columns: ${calendarColumns};">
             <div class="calendar-time">${slot}</div>
             ${weekDates.map((date) => {
               const appointmentItems = appointmentBySlot.get(`${date}|${slot}`) || [];
               const visitItems = visitBySlot.get(`${date}|${slot}`) || [];
               return `
-                ${renderCalendarCell(appointmentItems, visitItems, mode)}
+                ${renderCalendarCell(appointmentItems, visitItems, mode, isOffWorkday(date))}
               `;
             }).join("")}
           </div>
@@ -2002,15 +2030,16 @@ function renderWeeklyCalendar(weekDates, appointments, visits, mode = "split") {
   `;
 }
 
-function renderCalendarCell(appointments, visits, mode) {
+function renderCalendarCell(appointments, visits, mode, isOffDay = false) {
+  const offDayClass = isOffDay ? "off-day" : "";
   if (mode === "appointments") {
-    return `<div class="calendar-cell">${appointments.map((item) => renderCalendarRecord(item, "appointment")).join("")}</div>`;
+    return `<div class="calendar-cell ${offDayClass}">${appointments.map((item) => renderCalendarRecord(item, "appointment")).join("")}</div>`;
   }
   if (mode === "visits") {
-    return `<div class="calendar-cell">${visits.map((item) => renderCalendarRecord(item, "visit")).join("")}</div>`;
+    return `<div class="calendar-cell ${offDayClass}">${visits.map((item) => renderCalendarRecord(item, "visit")).join("")}</div>`;
   }
   return `
-    <div class="calendar-cell split-calendar-cell">
+    <div class="calendar-cell split-calendar-cell ${offDayClass}">
       <div class="calendar-lane appointment-lane">
         ${appointments.length ? `<div class="lane-mini-label">A</div>` : ""}
         ${appointments.map((item) => renderCalendarRecord(item, "appointment")).join("")}
@@ -2917,20 +2946,24 @@ function attachEvents() {
     if (action === "focus-chatgpt") handleFocusChatGPTWindow();
     if (action === "close-chatgpt-sidebar") closeChatGPTSidebar();
     if (action === "process-ai-workflow-result") processAIWorkflowResult();
+    if (action === "toggle-dashboard-import") {
+      dashboardImportOpen = !dashboardImportOpen;
+      render();
+    }
     if (action === "lane-clear") clearImportLane(target.dataset.lane);
     if (action === "lane-process") processImportLane(target.dataset.lane);
     if (action === "capture-selection") captureLearningSelection();
     if (action === "remember-correction") handleRememberCorrection(id);
     if (action === "prev-week") {
-      dashboardWeekStart = addDays(dashboardWeekStart, -7);
+      dashboardWeekStart = addDays(dashboardWeekStart, -3);
       render();
     }
     if (action === "this-week") {
-      dashboardWeekStart = getWeekStartISO(todayISO());
+      dashboardWeekStart = todayISO();
       render();
     }
     if (action === "next-week") {
-      dashboardWeekStart = addDays(dashboardWeekStart, 7);
+      dashboardWeekStart = addDays(dashboardWeekStart, 3);
       render();
     }
     if (action === "calendar-mode") {
