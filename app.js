@@ -637,11 +637,52 @@ function parseSmartCrmScheduleCandidates(
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
+  const structuredCandidates = lines
+    .map((line) => parseStructuredScheduleCandidateLine(line, date, therapistName, sourceFile, targetRecordType))
+    .filter(Boolean);
+  if (structuredCandidates.length) return structuredCandidates;
 
   const segments = splitSmartCrmAppointmentSegments(lines.join("\n"));
   return segments
     .map((segment) => parseSmartCrmScheduleCandidate(segment, date, therapistName, sourceFile, targetRecordType))
     .filter(Boolean);
+}
+
+function parseStructuredScheduleCandidateLine(line, fallbackDate, therapistName, sourceFile, targetRecordType) {
+  const raw = String(line || "").trim();
+  if (!raw || /예약\s*취소|예약취소|\[?\s*상태\s*[:：]?\s*취소|취소/.test(raw)) return null;
+  const match = raw.match(
+    /^\s*(?:(\d{4}\s*(?:[-./]|년)\s*\d{1,2}\s*(?:[-./]|월)\s*\d{1,2}\s*일?)\s+)?((?:오전|오후)?\s*(?:[0O]?\d|1\d|2[0-3])\s*[:시=.ㆍ·-]\s*(?:[0-5O]\d|[0-5O]))\s+(.+?)\s*$/,
+  );
+  if (!match) return null;
+
+  const explicitDate = normalizeDateText(match[1] || "") || extractScheduleLineDate(raw);
+  const time = normalizeKoreanTime(match[2]);
+  if (!time) return null;
+
+  const detailText = match[3].trim();
+  const treatment = extractSmartCrmTreatment(detailText);
+  const patientName = inferSmartCrmPatientName(detailText, therapistName);
+  const reviewReasons = [];
+  if (!patientName) reviewReasons.push("환자명");
+  if (!treatment.minutes) reviewReasons.push("치료시간");
+
+  return {
+    id: uid("schedcand"),
+    type: "schedule_candidate",
+    targetRecordType,
+    fileName: "schedule candidate",
+    createdAt: new Date().toISOString(),
+    recordedDate: explicitDate || fallbackDate,
+    recordedTime: time,
+    patientHint: patientName,
+    durationMinutes: treatment.minutes || "",
+    sourceFile,
+    status: "new",
+    matchStatus: "suggested",
+    needsReview: reviewReasons.length > 0,
+    reviewReason: reviewReasons.join(", "),
+  };
 }
 
 function parseCombinedScheduleImport(text, options) {
@@ -786,7 +827,17 @@ function scheduleCandidateToItem(candidate) {
 }
 
 function normalizeSmartCrmOcrText(text) {
-  return String(text || "")
+  const dateTokens = [];
+  const protectDate = (match) => {
+    const token = `__DATE_TOKEN_${dateTokens.length}__`;
+    dateTokens.push({ token, value: match });
+    return token;
+  };
+  const protectedText = String(text || "").replace(
+    /\d{4}\s*(?:[-./]|년)\s*\d{1,2}\s*(?:[-./]|월)\s*\d{1,2}\s*일?/g,
+    protectDate,
+  );
+  const normalized = protectedText
     .replace(/\r/g, "\n")
     .replace(/[＝]/g, "=")
     .replace(/[［【]/g, "[")
@@ -802,6 +853,7 @@ function normalizeSmartCrmOcrText(text) {
     .replace(/([0O]?\d|1\d|2[0-3])\s*[:시=.ㆍ·-]\s*([0-5O]\d|[0-5O])/g, (full, hour, minute) => {
       return `${hour.replace(/[Oo]/g, "0")}:${minute.replace(/[Oo]/g, "0").padStart(2, "0")}`;
     });
+  return dateTokens.reduce((memo, entry) => memo.replaceAll(entry.token, entry.value), normalized);
 }
 
 function splitSmartCrmAppointmentSegments(text) {
@@ -816,7 +868,12 @@ function splitSmartCrmAppointmentSegments(text) {
 }
 
 function findSmartCrmTimeMatches(text) {
-  return [...String(text || "").matchAll(/(?:오전|오후)?\s*([0O]?\d|1\d|2[0-3])\s*[:시=.ㆍ·-]\s*([0-5O]\d|[0-5O])/g)];
+  return [...String(text || "").matchAll(/(?:오전|오후)?\s*([0O]?\d|1\d|2[0-3])\s*[:시=.ㆍ·-]\s*([0-5O]\d|[0-5O])/g)].filter((match) => {
+    const start = match.index || 0;
+    const end = start + match[0].length;
+    const context = String(text || "").slice(Math.max(0, start - 8), Math.min(String(text || "").length, end + 8));
+    return !/\d{4}\s*[-./년]\s*\d{1,2}\s*[-./월]\s*\d{1,2}/.test(context);
+  });
 }
 
 function inferSmartCrmPatientName(segment, therapistName) {
@@ -1368,6 +1425,20 @@ function isSameImportedAppointment(existing, incoming) {
   const incomingName = normalizeNameForMatch(incoming.patientName || incoming.patientNameText);
   if (existingName && incomingName) return existingName === incomingName;
   return existing.sourceFile === incoming.sourceFile;
+}
+
+function clearPreviousScheduleImportRecords(sourceFile) {
+  const importedSources = new Set([`${sourceFile} visits`, `${sourceFile} appointments`]);
+  setAppointments(getAppointments().filter((item) => !importedSources.has(item.sourceFile)));
+  state.visits = state.visits.filter((visit) => {
+    const canReplace =
+      importedSources.has(visit.sourceFile) &&
+      visit.recordSource === "daily_ocr" &&
+      !visit.transcript &&
+      !visit.draft &&
+      !visit.confirmed;
+    return !canReplace;
+  });
 }
 
 function discardScheduleCandidate(id) {
@@ -3992,6 +4063,7 @@ function processImportLane(laneKey, options = {}) {
         );
       }),
     ];
+    clearPreviousScheduleImportRecords(sourceFile);
     const imported = candidates.map(importScheduleCandidate);
     const firstImported = imported[0]?.item;
     const reviewCount = imported.filter((entry) => entry.needsReview).length;
