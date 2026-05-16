@@ -139,7 +139,7 @@ body.chatgpt-workflow-open .sidebar-compact {
 .sidebar-tools {
   display: grid;
   gap: 4px;
-  margin-top: auto;
+  margin-top: 4px;
 }
 
 .nav-item,

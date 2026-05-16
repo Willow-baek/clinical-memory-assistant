@@ -3481,7 +3481,7 @@ function openChatGPTWindow() {
   setChatGPTWorkflowOpen(true);
   if (isGptOpen) {
     focusGPTWindow();
-    toast("열려 있는 ChatGPT 창을 앞으로 가져왔습니다.");
+    toast("ChatGPT 창 앞으로 가져오기를 시도했습니다.");
     return;
   }
 
@@ -3544,7 +3544,7 @@ function focusGPTWindow() {
 function handleFocusChatGPTWindow() {
   if (isGptOpen) {
     focusGPTWindow();
-    toast("ChatGPT 창을 앞으로 가져왔습니다.");
+    toast("ChatGPT 창 앞으로 가져오기를 시도했습니다.");
     return;
   }
 
