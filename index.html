@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260517-sidebar-hover-expand" />
+    <link rel="stylesheet" href="./styles.css?v=20260517-sidebar-hover-js" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
   </head>
   <body>
@@ -111,9 +111,18 @@
     <script src="./prompt-templates.js?v=20260516-schedule-ocr-workday-prompt"></script>
     <script type="module" src="./app.js?v=20260517-parser-module-split"></script>
     <script>
-      document.getElementById('sidebarToggle').addEventListener('click', function () {
-        document.body.classList.toggle('sidebar-open');
-      });
+      (function () {
+        var sidebar = document.querySelector('.sidebar');
+        document.getElementById('sidebarToggle').addEventListener('click', function () {
+          document.body.classList.toggle('sidebar-open');
+        });
+        sidebar.addEventListener('mouseenter', function () {
+          document.body.classList.add('sidebar-hover');
+        });
+        sidebar.addEventListener('mouseleave', function () {
+          document.body.classList.remove('sidebar-hover');
+        });
+      })();
     </script>
   </body>
 </html>

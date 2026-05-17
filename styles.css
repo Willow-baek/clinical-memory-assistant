@@ -57,7 +57,7 @@ button {
 }
 
 body.sidebar-open .app-shell,
-.app-shell:has(.sidebar:hover) {
+body.sidebar-hover .app-shell {
   grid-template-columns: var(--sidebar-open-width) minmax(0, 1fr);
 }
 
@@ -82,7 +82,7 @@ body.chatgpt-workflow-open .app-shell {
 }
 
 body.sidebar-open .sidebar,
-.sidebar:hover {
+body.sidebar-hover .sidebar {
   width: var(--sidebar-open-width);
   padding: 10px 8px;
 }
@@ -149,7 +149,7 @@ body.chatgpt-workflow-open .sidebar-compact {
 }
 
 body.sidebar-open .sidebar-app-title,
-.sidebar:hover .sidebar-app-title {
+body.sidebar-hover .sidebar-app-title {
   max-width: 150px;
   opacity: 1;
   margin-left: 10px;
@@ -200,7 +200,7 @@ body.sidebar-open .sidebar-app-title,
 }
 
 body.sidebar-open .sync-status-row > div,
-.sidebar:hover .sync-status-row > div {
+body.sidebar-hover .sync-status-row > div {
   max-width: 140px;
   opacity: 1;
   margin-left: 6px;
@@ -299,8 +299,8 @@ body.sidebar-open .sync-status-row > div,
 
 body.sidebar-open .nav-item,
 body.sidebar-open .sidebar-action,
-.sidebar:hover .nav-item,
-.sidebar:hover .sidebar-action {
+body.sidebar-hover .nav-item,
+body.sidebar-hover .sidebar-action {
   justify-content: flex-start;
   padding: 0 10px;
   gap: 10px;
@@ -308,8 +308,8 @@ body.sidebar-open .sidebar-action,
 
 body.sidebar-open .nav-item span,
 body.sidebar-open .sidebar-action span,
-.sidebar:hover .nav-item span,
-.sidebar:hover .sidebar-action span {
+body.sidebar-hover .nav-item span,
+body.sidebar-hover .sidebar-action span {
   width: 140px;
   opacity: 1;
 }
