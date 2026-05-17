@@ -8,7 +8,7 @@
   --accent: #6B6B32;
   --accent-strong: #525226;
   --accent-light: #E4E4C0;
-  --sidebar-bg: #1a0f0a;
+  --sidebar-bg: #150d08;
   --sidebar-hover: rgba(255, 255, 255, 0.08);
   --sidebar-active: #3D3D3A;
   --mint: #d9f1e7;
@@ -17,7 +17,7 @@
   --blue: #d8e8f7;
   --shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
   --sidebar-width: 52px;
-  --sidebar-hover-width: 180px;
+  --sidebar-open-width: 220px;
   --sidebar-expanded-width: 320px;
   --calendar-row-height: 76px;
 }
@@ -56,15 +56,11 @@ button {
   transition: grid-template-columns 0.3s ease;
 }
 
-.app-shell:has(.sidebar:hover) {
-  grid-template-columns: var(--sidebar-hover-width) minmax(0, 1fr);
+body.sidebar-open .app-shell {
+  grid-template-columns: var(--sidebar-open-width) minmax(0, 1fr);
 }
 
 body.chatgpt-workflow-open .app-shell {
-  grid-template-columns: var(--sidebar-expanded-width) minmax(0, 1fr);
-}
-
-body.chatgpt-workflow-open .app-shell:has(.sidebar:hover) {
   grid-template-columns: var(--sidebar-expanded-width) minmax(0, 1fr);
 }
 
@@ -84,17 +80,13 @@ body.chatgpt-workflow-open .app-shell:has(.sidebar:hover) {
   transition: width 0.2s ease, padding 0.2s ease;
 }
 
-.sidebar:hover {
-  width: var(--sidebar-hover-width);
+body.sidebar-open .sidebar {
+  width: var(--sidebar-open-width);
   padding: 10px 8px;
 }
 
 body.chatgpt-workflow-open .sidebar {
   padding: 12px;
-  width: var(--sidebar-expanded-width);
-}
-
-body.chatgpt-workflow-open .sidebar:hover {
   width: var(--sidebar-expanded-width);
 }
 
@@ -110,26 +102,24 @@ body.chatgpt-workflow-open .sidebar-compact {
   display: none;
 }
 
-/* Brand */
-.brand {
+/* Sidebar logo / toggle button */
+.sidebar-logo-btn {
   display: flex;
   align-items: center;
-  padding: 4px 0 8px;
+  width: 100%;
+  height: 52px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0 10px;
+  cursor: pointer;
   overflow: hidden;
+  flex-shrink: 0;
+  color: #FAFAF8;
 }
 
-.brand > div:not(.brand-mark) {
-  overflow: hidden;
-  max-width: 0;
-  opacity: 0;
-  white-space: nowrap;
-  transition: max-width 0.2s ease, opacity 0.15s ease, margin-left 0.2s ease;
-}
-
-.sidebar:hover .brand > div:not(.brand-mark) {
-  max-width: 130px;
-  opacity: 1;
-  margin-left: 8px;
+.sidebar-logo-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .brand-mark {
@@ -145,21 +135,36 @@ body.chatgpt-workflow-open .sidebar-compact {
   font-weight: 800;
 }
 
-.brand strong,
-.brand span,
+.sidebar-app-title {
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  margin-left: 0;
+  transition: max-width 0.25s ease, opacity 0.2s ease, margin-left 0.25s ease;
+}
+
+body.sidebar-open .sidebar-app-title {
+  max-width: 150px;
+  opacity: 1;
+  margin-left: 10px;
+}
+
 .sync-card strong,
 .sync-card span {
   display: block;
 }
 
-.brand span,
 .sync-card span {
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.45);
   font-size: 12px;
   margin-top: 2px;
 }
 
-.brand strong {
+.sync-card strong {
+  color: rgba(255, 255, 255, 0.75);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
@@ -191,7 +196,7 @@ body.chatgpt-workflow-open .sidebar-compact {
   transition: max-width 0.2s ease, opacity 0.15s ease, margin-left 0.2s ease;
 }
 
-.sidebar:hover .sync-status-row > div {
+body.sidebar-open .sync-status-row > div {
   max-width: 140px;
   opacity: 1;
   margin-left: 6px;
@@ -204,38 +209,8 @@ body.chatgpt-workflow-open .sidebar-compact {
   white-space: nowrap;
 }
 
-.sync-card strong {
-  font-size: 13px;
-}
-
 .sidebar-auth-button {
-  overflow: hidden;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--sidebar-hover);
-  color: var(--ink);
-  padding-left: 10px;
-  padding-right: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease;
-}
-
-.sidebar:hover .sidebar-auth-button {
-  max-height: 36px;
-  padding-top: 7px;
-  padding-bottom: 7px;
-  opacity: 1;
-}
-
-.sidebar-auth-button:hover {
-  background: var(--sidebar-active);
-  color: #fff;
+  display: none;
 }
 
 /* Section titles */
@@ -252,11 +227,6 @@ body.chatgpt-workflow-open .sidebar-compact {
   transition: max-height 0.25s ease, opacity 0.2s ease;
 }
 
-.sidebar:hover .sidebar-section-title {
-  max-height: 28px;
-  opacity: 1;
-}
-
 /* Nav */
 .nav {
   display: grid;
@@ -269,87 +239,81 @@ body.chatgpt-workflow-open .sidebar-compact {
   margin-top: 4px;
 }
 
-/* Nav items — icon-only when collapsed, icon+label when sidebar hovered */
+/* Nav items — icon-only when collapsed, icon+text when sidebar open */
 .nav-item,
 .sidebar-action {
   width: 100%;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
-  opacity: 1;
-  padding: 8px;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 0;
   text-align: left;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1;
-  min-height: 36px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0;
   overflow: hidden;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .nav-item:hover,
 .sidebar-action:hover {
-  background: transparent;
-  color: rgba(255, 255, 255, 0.75);
-  opacity: 1;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .nav-item.active {
-  background: #5c7a5c;
+  background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
-  opacity: 1;
   font-weight: 700;
-  box-shadow: 0 2px 8px rgba(92, 122, 92, 0.4);
 }
 
-/* data-short hidden — SVG nav-icon used instead */
-.nav-item::before,
-.sidebar-action::before {
-  display: none;
-}
-
-.nav-icon {
-  width: 18px;
-  height: 18px;
+.nav-item .ti,
+.sidebar-action .ti {
+  font-size: 18px;
   flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  line-height: 1;
 }
 
-/* Nav labels hidden — icon only */
+/* Nav labels hidden by default, revealed when sidebar open */
 .nav-item span,
 .sidebar-action span {
-  display: none;
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  white-space: nowrap;
+  transition: max-width 0.25s ease, opacity 0.2s ease;
 }
 
-.sidebar:hover .nav-item,
-.sidebar:hover .sidebar-action {
-  justify-content: center;
-  padding-left: 8px;
+body.sidebar-open .nav-item,
+body.sidebar-open .sidebar-action {
+  justify-content: flex-start;
+  padding: 0 10px;
+  gap: 10px;
+}
+
+body.sidebar-open .nav-item span,
+body.sidebar-open .sidebar-action span {
+  max-width: 150px;
+  opacity: 1;
 }
 
 .tool-item {
   border: 0;
 }
 
-/* Dividers: between Inbox/Patients and Insights/Settings */
+/* Dividers above Patients and Settings */
 .nav-item[data-view="patients"],
 .nav-item[data-view="settings"] {
   margin-top: 8px;
-}
-
-.nav-item[data-view="patients"]:not(.active),
-.nav-item[data-view="settings"]:not(.active) {
   box-shadow: 0 -5px 0 0 rgba(255, 255, 255, 0.1);
-}
-
-.nav-item[data-view="patients"].active,
-.nav-item[data-view="settings"].active {
-  box-shadow: 0 2px 8px rgba(92, 122, 92, 0.4), 0 -5px 0 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ===== AI SIDEBAR PANEL ===== */
