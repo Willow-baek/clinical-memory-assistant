@@ -3358,6 +3358,7 @@ async function copyExternalPrompt(promptId) {
 function openChatGPTWindow() {
   const layout = getAIWorkspaceLayout();
   setChatGPTWorkflowOpen(true);
+  fitAppWindowBesideChatGPT(layout.app);
   if (isGptOpen) {
     focusGPTWindow();
     toast("ChatGPT 창 앞으로 가져오기를 시도했습니다.");
@@ -3400,6 +3401,15 @@ function getAIWorkspaceLayout() {
 
 function windowFeatures(rect) {
   return `popup=yes,width=${Math.round(rect.width)},height=${Math.round(rect.height)},left=${Math.round(rect.left)},top=${Math.round(rect.top)},resizable=yes,scrollbars=yes`;
+}
+
+function fitAppWindowBesideChatGPT(rect) {
+  try {
+    window.moveTo(Math.round(rect.left), Math.round(rect.top));
+    window.resizeTo(Math.round(rect.width), Math.round(rect.height));
+  } catch {
+    // Browsers may ignore move/resize for normal tabs or maximized windows.
+  }
 }
 
 function openChatGPTPopup(layout = getAIWorkspaceLayout()) {
