@@ -286,10 +286,11 @@ body.sidebar-open .sync-status-row > div {
 .nav-item span,
 .sidebar-action span {
   overflow: hidden;
-  max-width: 0;
+  width: 0;
   opacity: 0;
   white-space: nowrap;
-  transition: max-width 0.25s ease, opacity 0.2s ease;
+  flex-shrink: 0;
+  transition: width 0.25s ease, opacity 0.2s ease;
 }
 
 body.sidebar-open .nav-item,
@@ -301,7 +302,7 @@ body.sidebar-open .sidebar-action {
 
 body.sidebar-open .nav-item span,
 body.sidebar-open .sidebar-action span {
-  max-width: 150px;
+  width: 140px;
   opacity: 1;
 }
 
