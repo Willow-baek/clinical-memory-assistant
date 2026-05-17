@@ -276,7 +276,7 @@ body.chatgpt-workflow-open .sidebar-compact {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.5);
   opacity: 1;
   padding: 8px;
   text-align: left;
@@ -308,16 +308,16 @@ body.chatgpt-workflow-open .sidebar-compact {
   box-shadow: 0 2px 8px rgba(92, 122, 92, 0.4);
 }
 
-/* Icon abbreviation (always visible) */
+/* data-short hidden — SVG nav-icon used instead */
 .nav-item::before,
 .sidebar-action::before {
-  content: attr(data-short);
-  display: inline-block;
-  min-width: 28px;
+  display: none;
+}
+
+.nav-icon {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  text-align: center;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 /* Nav labels hidden — icon only */
