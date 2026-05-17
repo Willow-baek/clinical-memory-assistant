@@ -145,7 +145,6 @@ let importLanes = {
   doctorChart: makeImportLane("doctorChart"),
 };
 let gptWindow = null;
-let aiWorkspaceWindow = null;
 let isGptOpen = false;
 let learningDraft = {
   from: "",
@@ -3358,12 +3357,6 @@ async function copyExternalPrompt(promptId) {
 
 function openChatGPTWindow() {
   const layout = getAIWorkspaceLayout();
-  if (!isAIWorkspaceMode()) {
-    openChatGPTPopup(layout);
-    openAIWorkspaceWindow(layout);
-    return;
-  }
-
   setChatGPTWorkflowOpen(true);
   if (isGptOpen) {
     focusGPTWindow();
@@ -3375,11 +3368,7 @@ function openChatGPTWindow() {
 }
 
 function setChatGPTWorkflowOpen(isOpen) {
-  document.body.classList.toggle("chatgpt-workflow-open", isOpen);
-}
-
-function isAIWorkspaceMode() {
-  return new URLSearchParams(window.location.search).get("aiWorkspace") === "1";
+  document.body.classList.toggle("ai-open", isOpen);
 }
 
 function getAIWorkspaceLayout() {
@@ -3413,13 +3402,6 @@ function windowFeatures(rect) {
   return `popup=yes,width=${Math.round(rect.width)},height=${Math.round(rect.height)},left=${Math.round(rect.left)},top=${Math.round(rect.top)},resizable=yes,scrollbars=yes`;
 }
 
-function getAIWorkspaceURL() {
-  const url = new URL(window.location.href);
-  url.searchParams.set("aiWorkspace", "1");
-  url.searchParams.set("gptOpen", "1");
-  return url.toString();
-}
-
 function openChatGPTPopup(layout = getAIWorkspaceLayout()) {
   gptWindow = window.open("https://chatgpt.com/", "clinicalMemoryChatGPT", windowFeatures(layout.gpt));
   if (gptWindow) {
@@ -3432,26 +3414,7 @@ function openChatGPTPopup(layout = getAIWorkspaceLayout()) {
   return gptWindow;
 }
 
-function openAIWorkspaceWindow(layout = getAIWorkspaceLayout()) {
-  aiWorkspaceWindow = window.open(getAIWorkspaceURL(), "clinicalMemoryAIWorkspace", windowFeatures(layout.app));
-  if (aiWorkspaceWindow) {
-    try {
-      aiWorkspaceWindow.focus();
-    } catch {
-      // Browser focus policy can ignore this.
-    }
-    toast("AI Workspace를 열었습니다.");
-  } else {
-    toast("AI Workspace 팝업이 막혔어요. 브라우저 팝업 허용 후 다시 눌러주세요.");
-  }
-  return aiWorkspaceWindow;
-}
-
 function focusGPTWindow() {
-  if (!gptWindow && isAIWorkspaceMode() && window.opener) {
-    window.opener.postMessage({ type: "CMA_FOCUS_GPT" }, "*");
-    return true;
-  }
   if (!gptWindow) return false;
   try {
     gptWindow.focus();
@@ -3478,17 +3441,6 @@ function handleFocusChatGPTWindow() {
 function closeChatGPTSidebar() {
   isGptOpen = false;
   setChatGPTWorkflowOpen(false);
-}
-
-function hydrateAIWorkspaceMode() {
-  if (!isAIWorkspaceMode()) return;
-  setChatGPTWorkflowOpen(true);
-  isGptOpen = new URLSearchParams(window.location.search).get("gptOpen") === "1";
-}
-
-function handleAIWorkspaceMessage(event) {
-  if (event.data?.type !== "CMA_FOCUS_GPT") return;
-  focusGPTWindow();
 }
 
 function processAIWorkflowResult() {
@@ -4208,8 +4160,6 @@ async function importData(event) {
 
 attachEvents();
 setView("dashboard");
-hydrateAIWorkspaceMode();
-window.addEventListener("message", handleAIWorkspaceMessage);
 
 window.setTimeout(() => {
   if (supabaseSession?.access_token) {
