@@ -682,9 +682,19 @@ select:focus {
   border-color: #edc6c2;
 }
 
+.danger-button:hover {
+  background: #fdebe8;
+  border-color: #dfa39d;
+}
+
 .small-button {
   padding: 7px 10px;
   font-size: 13px;
+}
+
+.small-danger {
+  padding: 6px 8px;
+  font-size: 12px;
 }
 
 .import-label input {
@@ -1482,7 +1492,7 @@ select:focus {
 
 .quick-record-edit {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr) 58px auto;
+  grid-template-columns: 74px minmax(0, 1fr) 58px auto auto;
   gap: 6px;
   align-items: end;
   border: 1px solid var(--line);

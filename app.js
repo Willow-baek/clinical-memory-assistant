@@ -1838,22 +1838,9 @@ function saveCalendarRecordQuickEdit(kind, id) {
   record.durationMinutes = duration || "";
   record.note = duration ? `${duration}분` : record.note || "";
 
+  updateCalendarRecordPatientName(record, recordInfo.kind, name, reviewReasons);
   if (recordInfo.kind === "visit") {
-    const currentPatient = getVisitPatient(record);
-    const nameChanged = normalizeNameForMatch(currentPatient?.name || record.patientNameText) !== normalizeNameForMatch(name);
-    record.patientNameText = name || record.patientNameText || "환자 확인";
-    if (nameChanged) {
-      const matchedPatient = findPatientByNameOrCode(name, "");
-      record.patientId = matchedPatient?.id || null;
-      if (!matchedPatient) reviewReasons.push("환자 연결 확인");
-    }
     selectedVisitId = record.id;
-  } else {
-    record.patientName = name || record.patientName || "환자 확인";
-    record.patientNameText = record.patientName;
-    const matchedPatient = findPatientByNameOrCode(record.patientName, record.patientCode || record.chartNumber || "");
-    record.patientId = matchedPatient?.id || null;
-    if (!matchedPatient) reviewReasons.push("환자 연결 확인");
   }
 
   record.needsReview = reviewReasons.length > 0;
@@ -1863,6 +1850,129 @@ function saveCalendarRecordQuickEdit(kind, id) {
   dashboardWeekStart = getWeekStartISO(record.date || todayISO());
   saveState();
   toast("Schedule block updated.");
+  render();
+}
+
+function updateCalendarRecordPatientName(record, kind, name, reviewReasons = []) {
+  const patientName = name.trim();
+  if (!patientName) return;
+
+  if (kind === "visit") {
+    const linkedPatient = getVisitPatient(record);
+    record.patientNameText = patientName;
+    if (linkedPatient) {
+      linkedPatient.name = patientName;
+      return;
+    }
+
+    const matchedPatient = findPatientByNameOrCode(patientName, "");
+    record.patientId = matchedPatient?.id || null;
+    if (!matchedPatient) reviewReasons.push("환자 연결 확인");
+    return;
+  }
+
+  const linkedPatient = state.patients.find((patient) => patient.id === record.patientId);
+  record.patientName = patientName;
+  record.patientNameText = patientName;
+  if (linkedPatient) {
+    linkedPatient.name = patientName;
+    return;
+  }
+
+  const matchedPatient = findPatientByNameOrCode(patientName, record.patientCode || record.chartNumber || "");
+  record.patientId = matchedPatient?.id || null;
+  if (!matchedPatient) reviewReasons.push("환자 연결 확인");
+}
+
+function deleteCalendarRecord(kind, id) {
+  const recordInfo = findCalendarRecord(kind, id);
+  if (!recordInfo?.item) return;
+  const name = recordInfo.kind === "visit" ? getVisitPatientName(recordInfo.item) : recordInfo.item.patientName || recordInfo.item.patientNameText || "";
+  const label = `${recordInfo.kind === "visit" ? "Visit" : "Appointment"} ${recordInfo.item.date || ""} ${recordInfo.item.time || ""} ${name}`.trim();
+  if (!window.confirm(`${label} 기록을 삭제할까요?`)) return;
+
+  if (recordInfo.kind === "visit") {
+    removeVisitRecord(id);
+  } else {
+    setAppointments(getAppointments().filter((item) => item.id !== id));
+  }
+
+  if (selectedScheduleId === id) {
+    const fallbackVisit = state.visits[0];
+    const fallbackAppointment = getAppointments()[0];
+    selectedCalendarKind = fallbackVisit ? "visit" : "appointment";
+    selectedScheduleId = fallbackVisit?.id || fallbackAppointment?.id || null;
+  }
+  saveState();
+  toast("기록을 삭제했습니다.");
+  render();
+}
+
+function removeVisitRecord(id) {
+  state.visits = state.visits.filter((visit) => visit.id !== id);
+  getAppointments().forEach((appointment) => {
+    if (appointment.matchedVisitId === id) {
+      appointment.matchedVisitId = null;
+      appointment.matchStatus = "unlinked";
+    }
+  });
+  state.rawInbox.forEach((item) => {
+    if (item.matchedVisitId === id) {
+      item.matchedVisitId = null;
+      item.matchStatus = "suggested";
+      if (item.status === "processed") item.status = "new";
+    }
+  });
+  state.matchingCandidates = state.matchingCandidates.filter((candidate) => {
+    return candidate.visitId !== id && candidate.matchedVisitId !== id;
+  });
+  if (selectedVisitId === id) selectedVisitId = state.visits[0]?.id || null;
+}
+
+function deleteVisitRecord(id) {
+  const visit = state.visits.find((entry) => entry.id === id);
+  if (!visit) return;
+  const label = `${visit.date || ""} ${visit.time || ""} ${getVisitPatientName(visit)}`.trim();
+  if (!window.confirm(`${label} 방문 기록을 삭제할까요?`)) return;
+  removeVisitRecord(id);
+  if (selectedScheduleId === id) selectedScheduleId = state.visits[0]?.id || getAppointments()[0]?.id || null;
+  saveState();
+  toast("방문 기록을 삭제했습니다.");
+  render();
+}
+
+function deletePatientRecord(id) {
+  const patient = state.patients.find((entry) => entry.id === id);
+  if (!patient) return;
+  const linkedVisitCount = state.visits.filter((visit) => visit.patientId === id).length;
+  const linkedAppointmentCount = getAppointments().filter((appointment) => appointment.patientId === id).length;
+  const details = linkedVisitCount || linkedAppointmentCount
+    ? `\n\n연결된 Visit ${linkedVisitCount}개, Appointment ${linkedAppointmentCount}개는 삭제하지 않고 이름 텍스트만 남겨둘게요.`
+    : "";
+  if (!window.confirm(`${patient.name} 환자 정보를 삭제할까요?${details}`)) return;
+
+  state.visits.forEach((visit) => {
+    if (visit.patientId !== id) return;
+    visit.patientNameText = visit.patientNameText || patient.name;
+    visit.patientId = null;
+    visit.needsReview = true;
+    visit.reviewReason = "환자 삭제됨 · 연결 확인";
+  });
+  getAppointments().forEach((appointment) => {
+    if (appointment.patientId !== id) return;
+    appointment.patientName = appointment.patientName || patient.name;
+    appointment.patientNameText = appointment.patientNameText || appointment.patientName;
+    appointment.patientId = null;
+    appointment.needsReview = true;
+    appointment.reviewReason = "환자 삭제됨 · 연결 확인";
+  });
+  state.rawInbox.forEach((item) => {
+    if (item.patientId === id) item.patientId = null;
+  });
+  state.patients = state.patients.filter((entry) => entry.id !== id);
+  selectedPatientId = state.patients[0]?.id || null;
+  saveState();
+  toast("환자 정보를 삭제했습니다.");
   render();
 }
 
@@ -1953,6 +2063,7 @@ function renderCalendarRecordQuickEdit(record, kind) {
         <input id="quickDuration-${record.id}" value="${escapeHTML(duration || "")}" placeholder="60" />
       </label>
       <button class="small-button" data-action="save-calendar-record" data-kind="${escapeHTML(kind)}" data-id="${escapeHTML(record.id)}">Save</button>
+      <button class="danger-button small-danger" data-action="delete-calendar-record" data-kind="${escapeHTML(kind)}" data-id="${escapeHTML(record.id)}">Delete</button>
     </div>
   `;
 }
@@ -2280,7 +2391,10 @@ function renderPatientForm(patient) {
         <label for="patientFlags">Flags</label>
         <input id="patientFlags" value="${escapeHTML(patient.flags)}" />
       </div>
-      <button class="primary-button" type="submit">저장</button>
+      <div class="split-actions">
+        <button class="danger-button" type="button" data-action="delete-patient" data-id="${patient.id}">Delete</button>
+        <button class="primary-button" type="submit">저장</button>
+      </div>
     </form>
   `;
 }
@@ -2342,12 +2456,13 @@ function renderVisitItem(visit) {
 
 function renderVisitEditor(visit) {
   const patient = state.patients.find((item) => item.id === visit.patientId);
+  const patientName = patient?.name || visit.patientNameText || "";
   return `
     <form class="stack" id="visitForm" data-id="${visit.id}">
       <div class="field-grid three">
         <div class="field">
-          <label>환자</label>
-          <input value="${escapeHTML(patient?.code || visit.reviewReason || "환자 연결 필요")} · ${escapeHTML(patient?.name || visit.patientNameText || "")}" disabled />
+          <label for="visitPatientName">환자명</label>
+          <input id="visitPatientName" value="${escapeHTML(patientName)}" placeholder="김OO" />
         </div>
         <div class="field">
           <label for="visitDate">날짜</label>
@@ -2413,6 +2528,7 @@ function renderVisitEditor(visit) {
       ${renderLearningPanel(visit)}
 
       <div class="split-actions">
+        <button class="danger-button" type="button" data-action="delete-visit" data-id="${visit.id}">Delete</button>
         <button class="ghost-button" type="button" data-action="copy-draft" data-id="${visit.id}">복사</button>
         <button class="primary-button" type="submit">저장</button>
       </div>
@@ -2714,6 +2830,9 @@ function attachEvents() {
     if (action === "save-calendar-record") {
       saveCalendarRecordQuickEdit(target.dataset.kind || selectedCalendarKind, id);
     }
+    if (action === "delete-calendar-record") {
+      deleteCalendarRecord(target.dataset.kind || selectedCalendarKind, id);
+    }
     if (action === "select-schedule") {
       selectedScheduleId = id;
       selectedCalendarKind = "appointment";
@@ -2803,6 +2922,12 @@ function attachEvents() {
       state.terms = state.terms.filter((term) => term.id !== id);
       saveState();
       render();
+    }
+    if (action === "delete-patient") {
+      deletePatientRecord(id);
+    }
+    if (action === "delete-visit") {
+      deleteVisitRecord(id);
     }
     if (action === "new-manual-visit") {
       const patient = state.patients.find((entry) => entry.id === selectedPatientId) || state.patients[0];
@@ -3924,6 +4049,10 @@ function handlePatientForm(form) {
 function handleVisitForm(form) {
   const visit = state.visits.find((entry) => entry.id === form.dataset.id);
   if (!visit) return;
+  const patientName = form.querySelector("#visitPatientName")?.value.trim() || "";
+  const reviewReasons = [];
+  if (!patientName) reviewReasons.push("환자명 확인");
+  updateCalendarRecordPatientName(visit, "visit", patientName, reviewReasons);
   visit.date = form.querySelector("#visitDate").value;
   visit.time = form.querySelector("#visitTime").value;
   visit.durationMinutes = normalizeTreatmentMinutes(form.querySelector("#visitDuration")?.value || visit.durationMinutes || "");
@@ -3951,6 +4080,8 @@ function handleVisitForm(form) {
   visit.nextFocus = form.querySelector("#visitNext").value.trim();
   visit.draft = form.querySelector("#visitDraft").value.trim();
   visit.confirmed = true;
+  visit.needsReview = reviewReasons.length > 0;
+  visit.reviewReason = [...new Set(reviewReasons)].join(", ");
   saveState();
   toast("방문 기록을 저장했습니다.");
   render();
