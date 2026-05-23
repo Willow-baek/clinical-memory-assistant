@@ -151,6 +151,18 @@
     line-height: 1.6;
     color: var(--muted);
   }
+  .date-select-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 0.9fr;
+    gap: 8px;
+  }
+  .date-select {
+    appearance: none;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .date-select.placeholder { color: #444; }
+  .date-select option { background: var(--surface); color: var(--text); }
 
   .dow-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .dow-btn {
@@ -171,6 +183,7 @@
     display: flex; align-items: center; justify-content: space-between;
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
   }
+  .field-note + .toggle-row { margin-top: 12px; }
   .toggle-label-text { font-size: 13px; color: var(--text); }
   .toggle-label-sub  { font-size: 10px; color: var(--muted); margin-top: 3px; }
   .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
@@ -427,7 +440,11 @@
 
     <div class="setup-section">
       <label class="setup-label" id="s-label-lastday"></label>
-      <input class="setup-input" id="s-lastday" type="date">
+      <div class="date-select-grid">
+        <select class="setup-input date-select placeholder" id="s-lastday-year"></select>
+        <select class="setup-input date-select placeholder" id="s-lastday-month"></select>
+        <select class="setup-input date-select placeholder" id="s-lastday-day"></select>
+      </div>
     </div>
 
     <div class="setup-section">
@@ -443,6 +460,8 @@
 
     <div class="setup-section">
       <label class="setup-label" id="s-label-holiday"></label>
+      <select class="setup-input" id="s-holiday-country"></select>
+      <div class="field-note" id="s-holiday-country-note"></div>
       <div class="toggle-row">
         <div>
           <div class="toggle-label-text" id="s-holiday-title"></div>
@@ -526,13 +545,24 @@ const T = {
     labelName:      '이름 (선택)',
     placeholderName:'예: Willow',
     labelLastday:   '마지막 출근일',
+    datePartLabels: { year: '연도', month: '월', day: '일' },
     labelPaidDays:  '남은 유급휴가',
     paidDaysNote:   '회사 규정, 계약서, 급여 명세서 기준으로 직접 입력하세요. 법적 판단은 하지 않아요.',
     placeholderPaidDays: '예: 3',
     labelOffdays:   '정기 휴무 요일',
-    labelHoliday:   '공휴일',
-    holidayTitle:   '한국 공휴일 자동 제외',
-    holidaySub:     '2026년 한국 공휴일 기준',
+    labelHoliday:   '공휴일 캘린더',
+    holidayTitle:   '선택한 공휴일 자동 제외',
+    holidaySub:     (countryName) => countryName === '사용 안 함' ? '공휴일을 자동 제외하지 않아요.' : `${countryName} 공휴일을 출근일에서 제외해요.`,
+    holidayCountryNote: '2026년 전국/연방 기준입니다. 지역·회사별 휴무는 직접 추가하세요.',
+    holidayCountries: {
+      none: '사용 안 함',
+      kr: '대한민국 · 2026',
+      jp: '일본 · 2026',
+      us: '미국 연방 · 2026',
+      ca: '캐나다 연방 · 2026',
+      mx: '멕시코 전국 · 2026',
+      es: '스페인 전국 · 2026'
+    },
     startBtn:       '시작하기 →',
     errNoDate:      '마지막 출근일을 선택해줘.',
     errPastDate:    '마지막 출근일은 오늘 이후여야 해.',
@@ -581,13 +611,24 @@ const T = {
     labelName:      'Your name (optional)',
     placeholderName:'e.g. Willow',
     labelLastday:   'Last working day',
+    datePartLabels: { year: 'Year', month: 'Month', day: 'Day' },
     labelPaidDays:  'Paid days off remaining',
     paidDaysNote:   'Enter this yourself from your contract, company policy, or payslip. This app does not make legal judgments.',
     placeholderPaidDays: 'e.g. 3',
     labelOffdays:   'Regular days off',
-    labelHoliday:   'Public holidays',
-    holidayTitle:   'Auto-exclude Korean public holidays',
-    holidaySub:     'Based on Korean public holidays in 2026',
+    labelHoliday:   'Holiday calendar',
+    holidayTitle:   'Auto-exclude selected public holidays',
+    holidaySub:     (countryName) => countryName === 'No holiday calendar' ? 'No public holidays will be auto-excluded.' : `${countryName} holidays will be excluded from work days.`,
+    holidayCountryNote: 'Uses 2026 national/federal calendars. Add regional or company-specific days manually.',
+    holidayCountries: {
+      none: 'No holiday calendar',
+      kr: 'South Korea · 2026',
+      jp: 'Japan · 2026',
+      us: 'United States federal · 2026',
+      ca: 'Canada federal · 2026',
+      mx: 'Mexico national · 2026',
+      es: 'Spain national · 2026'
+    },
     startBtn:       'Start →',
     errNoDate:      'Please pick your last working day.',
     errPastDate:    'Last working day must be in the future.',
@@ -636,13 +677,24 @@ const T = {
     labelName:      'お名前（任意）',
     placeholderName:'例：さくら',
     labelLastday:   '最終出勤日',
+    datePartLabels: { year: '年', month: '月', day: '日' },
     labelPaidDays:  '残りの有給休暇',
     paidDaysNote:   '契約書、会社規定、給与明細などをもとに自分で入力してください。法的判断は行いません。',
     placeholderPaidDays: '例：3',
     labelOffdays:   '定休日',
-    labelHoliday:   '祝日',
-    holidayTitle:   '韓国の祝日を自動除外',
-    holidaySub:     '2026年の韓国の祝日を基準',
+    labelHoliday:   '祝日カレンダー',
+    holidayTitle:   '選択した祝日を自動除外',
+    holidaySub:     (countryName) => countryName === '使用しない' ? '祝日は自動除外されません。' : `${countryName}の祝日を出勤日から除外します。`,
+    holidayCountryNote: '2026年の全国・連邦カレンダー基準です。地域や会社独自の休みは手動で追加してください。',
+    holidayCountries: {
+      none: '使用しない',
+      kr: '韓国 · 2026',
+      jp: '日本 · 2026',
+      us: '米国連邦 · 2026',
+      ca: 'カナダ連邦 · 2026',
+      mx: 'メキシコ全国 · 2026',
+      es: 'スペイン全国 · 2026'
+    },
     startBtn:       'はじめる →',
     errNoDate:      '最終出勤日を選んでください。',
     errPastDate:    '最終出勤日は今日より後にしてください。',
@@ -691,13 +743,24 @@ const T = {
     labelName:      'Tu nombre (opcional)',
     placeholderName:'Ej: María',
     labelLastday:   'Último día de trabajo',
+    datePartLabels: { year: 'Año', month: 'Mes', day: 'Día' },
     labelPaidDays:  'Días libres pagados restantes',
     paidDaysNote:   'Introduce el dato tú mismo según tu contrato, política de empresa o nómina. Esta app no hace interpretaciones legales.',
     placeholderPaidDays: 'Ej: 3',
     labelOffdays:   'Días libres regulares',
-    labelHoliday:   'Festivos',
-    holidayTitle:   'Excluir automáticamente festivos coreanos',
-    holidaySub:     'Basado en festivos coreanos de 2026',
+    labelHoliday:   'Calendario festivo',
+    holidayTitle:   'Excluir automáticamente festivos seleccionados',
+    holidaySub:     (countryName) => countryName === 'Sin calendario festivo' ? 'No se excluirán festivos automáticamente.' : `Se excluirán los festivos de ${countryName}.`,
+    holidayCountryNote: 'Usa calendarios nacionales/federales de 2026. Añade manualmente festivos regionales o de empresa.',
+    holidayCountries: {
+      none: 'Sin calendario festivo',
+      kr: 'Corea del Sur · 2026',
+      jp: 'Japón · 2026',
+      us: 'Estados Unidos federal · 2026',
+      ca: 'Canadá federal · 2026',
+      mx: 'México nacional · 2026',
+      es: 'España nacional · 2026'
+    },
     startBtn:       'Empezar →',
     errNoDate:      'Elige tu último día de trabajo.',
     errPastDate:    'El último día debe ser en el futuro.',
@@ -742,20 +805,75 @@ const T = {
 };
 
 // ══════════════════════════════════════════
-//  한국 공휴일 2026
+//  National / federal holiday calendars — 2026
 // ══════════════════════════════════════════
-const KR_HOLIDAYS = new Set([
-  '2026-01-01',
-  '2026-02-16','2026-02-17','2026-02-18',
-  '2026-03-01','2026-03-02',
-  '2026-05-01','2026-05-05','2026-05-24','2026-05-25',
-  '2026-06-03','2026-06-06',
-  '2026-07-17',
-  '2026-08-15','2026-08-17',
-  '2026-09-24','2026-09-25','2026-09-26',
-  '2026-10-03','2026-10-05','2026-10-09',
-  '2026-12-25'
-]);
+const HOLIDAY_COUNTRIES = ['none', 'kr', 'jp', 'us', 'ca', 'mx', 'es'];
+const HOLIDAYS_2026 = {
+  none: new Set(),
+  kr: new Set([
+    '2026-01-01',
+    '2026-02-16','2026-02-17','2026-02-18',
+    '2026-03-01','2026-03-02',
+    '2026-05-01','2026-05-05','2026-05-24','2026-05-25',
+    '2026-06-03','2026-06-06',
+    '2026-07-17',
+    '2026-08-15','2026-08-17',
+    '2026-09-24','2026-09-25','2026-09-26',
+    '2026-10-03','2026-10-05','2026-10-09',
+    '2026-12-25'
+  ]),
+  jp: new Set([
+    '2026-01-01','2026-01-12',
+    '2026-02-11','2026-02-23',
+    '2026-03-20',
+    '2026-04-29',
+    '2026-05-03','2026-05-04','2026-05-05','2026-05-06',
+    '2026-07-20',
+    '2026-08-11',
+    '2026-09-21','2026-09-22','2026-09-23',
+    '2026-10-12',
+    '2026-11-03','2026-11-23'
+  ]),
+  us: new Set([
+    '2026-01-01','2026-01-19',
+    '2026-02-16',
+    '2026-05-25',
+    '2026-06-19',
+    '2026-07-03',
+    '2026-09-07',
+    '2026-10-12',
+    '2026-11-11','2026-11-26',
+    '2026-12-25'
+  ]),
+  ca: new Set([
+    '2026-01-01',
+    '2026-04-03','2026-04-06',
+    '2026-05-18',
+    '2026-07-01',
+    '2026-08-03',
+    '2026-09-07','2026-09-30',
+    '2026-10-12',
+    '2026-11-11',
+    '2026-12-25','2026-12-26'
+  ]),
+  mx: new Set([
+    '2026-01-01',
+    '2026-02-02',
+    '2026-03-16',
+    '2026-05-01',
+    '2026-09-16',
+    '2026-11-16',
+    '2026-12-25'
+  ]),
+  es: new Set([
+    '2026-01-01','2026-01-06',
+    '2026-04-03',
+    '2026-05-01',
+    '2026-08-15',
+    '2026-10-12',
+    '2026-12-08','2026-12-25'
+  ])
+};
 
 // ══ 상태 ══
 let lang = 'ko';
@@ -782,10 +900,31 @@ function sameDay(a,b) {
   return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
 }
 function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+function getLocale() {
+  return ({ ko: 'ko-KR', en: 'en-US', ja: 'ja-JP', es: 'es-ES' })[lang] || 'en-US';
+}
+function formatDateForLang(d) {
+  return d.toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' });
+}
+function defaultHolidayCountryForLang(l) {
+  return ({ ko: 'kr', en: 'us', ja: 'jp', es: 'es' })[l] || 'none';
+}
+function getHolidayCountryLabel(code) {
+  const labels = T[lang].holidayCountries || T.en.holidayCountries;
+  return labels[code] || labels.none;
+}
+function getHolidayCountry() {
+  return cfg?.holidayCountry || 'kr';
+}
+function isHolidayDate(d) {
+  const country = getHolidayCountry();
+  if (!cfg?.useHoliday || country === 'none') return false;
+  return (HOLIDAYS_2026[country] || HOLIDAYS_2026.none).has(dateKey(d));
+}
 
 function isBaseWorkDay(d) {
   if (cfg.offDows.includes(d.getDay())) return false;
-  if (cfg.useHoliday && KR_HOLIDAYS.has(dateKey(d))) return false;
+  if (isHolidayDate(d)) return false;
   return true;
 }
 function isWorkDay(d) {
@@ -814,6 +953,7 @@ function saveData() {
       lastDayKey: dateKey(cfg.lastDay),
       paidDaysRemaining: getPaidDaysRemaining(),
       offDows: cfg.offDows,
+      holidayCountry: getHolidayCountry(),
       useHoliday: cfg.useHoliday
     }, userOffDays }));
   } catch(e) {}
@@ -830,6 +970,7 @@ function loadData() {
       lastDay: keyToDate(c.lastDayKey),
       paidDaysRemaining: Number.isFinite(Number(c.paidDaysRemaining)) ? Math.max(0, Math.floor(Number(c.paidDaysRemaining))) : 0,
       offDows: c.offDows,
+      holidayCountry: c.holidayCountry || 'kr',
       useHoliday: c.useHoliday
     };
     userOffDays = data.userOffDays || {};
@@ -851,6 +992,95 @@ function pickLang(l) {
   showScreen('setup');
 }
 
+function setSelectPlaceholderState(select) {
+  select.classList.toggle('placeholder', !select.value);
+}
+
+function fillSelect(select, placeholder, options) {
+  select.innerHTML = `<option value="">${placeholder}</option>` +
+    options.map(({ value, label }) => `<option value="${value}">${label}</option>`).join('');
+  setSelectPlaceholderState(select);
+}
+
+function buildLastDayControls() {
+  const t = T[lang];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yearSelect = document.getElementById('s-lastday-year');
+  const monthSelect = document.getElementById('s-lastday-month');
+  const daySelect = document.getElementById('s-lastday-day');
+  const years = [];
+  for (let y = today.getFullYear(); y <= today.getFullYear() + 2; y++) {
+    years.push({ value: String(y), label: String(y) });
+  }
+  const months = Array.from({ length: 12 }, (_, i) => ({
+    value: String(i + 1),
+    label: new Date(2026, i, 1).toLocaleDateString(getLocale(), { month: 'long' })
+  }));
+
+  fillSelect(yearSelect, t.datePartLabels.year, years);
+  fillSelect(monthSelect, t.datePartLabels.month, months);
+  fillSelect(daySelect, t.datePartLabels.day, []);
+
+  const updateDays = () => {
+    const y = Number(yearSelect.value);
+    const m = Number(monthSelect.value);
+    const previousDay = daySelect.value;
+    const maxDay = y && m ? new Date(y, m, 0).getDate() : 0;
+    const days = Array.from({ length: maxDay }, (_, i) => ({
+      value: String(i + 1),
+      label: String(i + 1)
+    }));
+    fillSelect(daySelect, t.datePartLabels.day, days);
+    if (previousDay && Number(previousDay) <= maxDay) daySelect.value = previousDay;
+    setSelectPlaceholderState(daySelect);
+  };
+
+  yearSelect.onchange = () => { setSelectPlaceholderState(yearSelect); updateDays(); };
+  monthSelect.onchange = () => { setSelectPlaceholderState(monthSelect); updateDays(); };
+  daySelect.onchange = () => setSelectPlaceholderState(daySelect);
+}
+
+function getSelectedLastDayValue() {
+  const y = Number(document.getElementById('s-lastday-year').value);
+  const m = Number(document.getElementById('s-lastday-month').value);
+  const d = Number(document.getElementById('s-lastday-day').value);
+  if (!y || !m || !d) return '';
+  const lastDay = new Date(y, m - 1, d);
+  if (lastDay.getFullYear() !== y || lastDay.getMonth() !== m - 1 || lastDay.getDate() !== d) return '';
+  return dateKey(lastDay);
+}
+
+function buildHolidayCountryControl() {
+  const t = T[lang];
+  const select = document.getElementById('s-holiday-country');
+  const defaultCountry = defaultHolidayCountryForLang(lang);
+  select.innerHTML = HOLIDAY_COUNTRIES.map((code) => {
+    const label = t.holidayCountries[code] || code;
+    return `<option value="${code}">${label}</option>`;
+  }).join('');
+  select.value = defaultCountry;
+  document.getElementById('s-holiday').checked = defaultCountry !== 'none';
+  select.onchange = () => {
+    if (select.value === 'none') document.getElementById('s-holiday').checked = false;
+    if (select.value !== 'none' && !document.getElementById('s-holiday').checked) {
+      document.getElementById('s-holiday').checked = true;
+    }
+    updateHolidaySetupText();
+  };
+  updateHolidaySetupText();
+}
+
+function updateHolidaySetupText() {
+  const t = T[lang];
+  const select = document.getElementById('s-holiday-country');
+  const checkbox = document.getElementById('s-holiday');
+  const code = select.value || 'none';
+  checkbox.disabled = code === 'none';
+  document.getElementById('s-holiday-title').textContent = t.holidayTitle;
+  document.getElementById('s-holiday-sub').textContent = t.holidaySub(getHolidayCountryLabel(code));
+  document.getElementById('s-holiday-country-note').textContent = t.holidayCountryNote;
+}
+
 // ══ 설정 화면 빌드 ══
 function buildSetupUI() {
   const t = T[lang];
@@ -860,13 +1090,13 @@ function buildSetupUI() {
   document.getElementById('s-label-name').textContent   = t.labelName;
   document.getElementById('s-name').placeholder         = t.placeholderName;
   document.getElementById('s-label-lastday').textContent= t.labelLastday;
+  buildLastDayControls();
   document.getElementById('s-label-paiddays').textContent = t.labelPaidDays;
   document.getElementById('s-paid-days').placeholder = t.placeholderPaidDays;
   document.getElementById('s-paid-days-note').textContent = t.paidDaysNote;
   document.getElementById('s-label-offdays').textContent= t.labelOffdays;
   document.getElementById('s-label-holiday').textContent= t.labelHoliday;
-  document.getElementById('s-holiday-title').textContent= t.holidayTitle;
-  document.getElementById('s-holiday-sub').textContent  = t.holidaySub;
+  buildHolidayCountryControl();
   document.getElementById('s-start-btn').textContent    = t.startBtn;
   document.getElementById('setup-err').textContent      = '';
 
@@ -887,9 +1117,10 @@ function buildSetupUI() {
 function startApp() {
   const t          = T[lang];
   const nameVal    = document.getElementById('s-name').value.trim();
-  const lastDayVal = document.getElementById('s-lastday').value;
+  const lastDayVal = getSelectedLastDayValue();
   const paidDaysRemaining = Math.max(0, Math.floor(Number(document.getElementById('s-paid-days').value) || 0));
-  const useHoliday = document.getElementById('s-holiday').checked;
+  const holidayCountry = document.getElementById('s-holiday-country').value || 'none';
+  const useHoliday = document.getElementById('s-holiday').checked && holidayCountry !== 'none';
   const errEl      = document.getElementById('setup-err');
 
   const dowBtns = document.querySelectorAll('#dow-grid .dow-btn');
@@ -904,7 +1135,7 @@ function startApp() {
   if (offDows.length>=6){ errEl.textContent = t.errTooManyDow;  return; }
 
   errEl.textContent = '';
-  cfg = { name: nameVal, lastDay, paidDaysRemaining, offDows, useHoliday };
+  cfg = { name: nameVal, lastDay, paidDaysRemaining, offDows, holidayCountry, useHoliday };
   userOffDays = {};
 
   buildMainUI();
@@ -935,8 +1166,7 @@ function buildMainUI() {
   document.getElementById('lg-comp').textContent        = t.lgComp;
 
   const lastDayKey = dateKey(cfg.lastDay);
-  const [y,m,d] = lastDayKey.split('-');
-  document.getElementById('footer-badge').textContent = t.footerBadge(`${y}.${m}.${d}`);
+  document.getElementById('footer-badge').textContent = t.footerBadge(formatDateForLang(cfg.lastDay));
 
   // 이름
   const nameEl = document.getElementById('header-name');
@@ -1111,9 +1341,9 @@ function renderCalendar() {
       } else if (isBaseWork) {
         cell.classList.add('work-future');
         cell.innerHTML = `<span class="day-num">${day}</span>`;
-      } else if (cfg.useHoliday && KR_HOLIDAYS.has(key)) {
+      } else if (isHolidayDate(d)) {
         cell.classList.add('holiday-off');
-        cell.innerHTML = `<span style="font-size:9px">🎌</span><span class="day-num" style="opacity:0.35">${day}</span>`;
+        cell.innerHTML = `<span style="font-size:10px">✦</span><span class="day-num" style="opacity:0.35">${day}</span>`;
       } else {
         cell.classList.add('off');
         cell.textContent = day;
