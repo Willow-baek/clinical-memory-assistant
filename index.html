@@ -140,6 +140,12 @@
   }
   .setup-input:focus { border-color: var(--accent2); }
   .setup-input::placeholder { color: #333; }
+  .field-note {
+    margin-top: 8px;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
 
   .dow-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .dow-btn {
@@ -420,6 +426,12 @@
     </div>
 
     <div class="setup-section">
+      <label class="setup-label" id="s-label-paiddays"></label>
+      <input class="setup-input" id="s-paid-days" type="number" min="0" step="1" inputmode="numeric" value="0">
+      <div class="field-note" id="s-paid-days-note"></div>
+    </div>
+
+    <div class="setup-section">
       <label class="setup-label" id="s-label-offdays"></label>
       <div class="dow-grid" id="dow-grid"></div>
     </div>
@@ -505,14 +517,17 @@ const T = {
   ko: {
     backLabel:      '언어 선택',
     subtitle:       '퇴사 카운트다운 · 나만의 설정',
-    cacheWarn:      '<strong>⚠ 데이터 저장 안내</strong><br>설정과 연차 기록은 이 브라우저에 저장돼요. <strong>브라우저 캐시나 사이트 데이터를 삭제하면 초기화</strong>되니 주의해요.',
+    cacheWarn:      '<strong>⚠ 데이터 저장 안내</strong><br>설정과 휴무 기록은 이 브라우저에 저장돼요. <strong>브라우저 캐시나 사이트 데이터를 삭제하면 초기화</strong>되니 주의해요.',
     labelName:      '이름 (선택)',
     placeholderName:'예: Willow',
     labelLastday:   '마지막 출근일',
+    labelPaidDays:  '남은 유급휴가',
+    paidDaysNote:   '회사 규정, 계약서, 급여 명세서 기준으로 직접 입력하세요. 법적 판단은 하지 않아요.',
+    placeholderPaidDays: '예: 3',
     labelOffdays:   '정기 휴무 요일',
     labelHoliday:   '공휴일',
     holidayTitle:   '한국 공휴일 자동 제외',
-    holidaySub:     '2025년 평일 공휴일 기준',
+    holidaySub:     '2026년 한국 공휴일 기준',
     startBtn:       '시작하기 →',
     errNoDate:      '마지막 출근일을 선택해줘.',
     errPastDate:    '마지막 출근일은 오늘 이후여야 해.',
@@ -521,21 +536,21 @@ const T = {
     settingsBtn:    '⚙ 설정',
     headerLabel:    '남은 출근',
     headerUnit:     'DAYS LEFT',
-    panelLabel:     '📅  연차 / 대체휴무',
+    panelLabel:     '📅  유급휴가 / 대체휴무',
     dateLabel:      '날짜',
     addBtn:         '추가',
-    optAnnual:      '연차 🔵',
+    optAnnual:      '유급휴가 🔵',
     optComp:        '대체휴무 🟢',
-    badgeAnnual:    '연차',
+    badgeAnnual:    '유급',
     badgeComp:      '대체',
     removeBtn:      '취소',
     emptyHint:      '아직 없음',
     lgToday:        '오늘',
     lgWork:         '출근',
-    lgAnnual:       '연차',
+    lgAnnual:       '유급휴가',
     lgComp:         '대체휴무',
     footerBadge:    (d) => `🏁 마지막 출근 · ${d}`,
-    footerNote:     '연차 소진 후 퇴사 예정',
+    footerNote:     (paidDays) => paidDays > 0 ? `남은 유급휴가 ${paidDays}일 반영 중` : '입력한 일정 기준으로 계산 중',
     cheerMsg:       (n, name) => {
       const msgs = [
         `${name ? name + ', ' : ''}오늘도 버텼어. <span class="cheer-accent">${n}번</span> 남았어.`,
@@ -561,10 +576,13 @@ const T = {
     labelName:      'Your name (optional)',
     placeholderName:'e.g. Willow',
     labelLastday:   'Last working day',
+    labelPaidDays:  'Paid days off remaining',
+    paidDaysNote:   'Enter this yourself from your contract, company policy, or payslip. This app does not make legal judgments.',
+    placeholderPaidDays: 'e.g. 3',
     labelOffdays:   'Regular days off',
     labelHoliday:   'Public holidays',
     holidayTitle:   'Auto-exclude Korean public holidays',
-    holidaySub:     'Weekday holidays in 2025',
+    holidaySub:     'Based on Korean public holidays in 2026',
     startBtn:       'Start →',
     errNoDate:      'Please pick your last working day.',
     errPastDate:    'Last working day must be in the future.',
@@ -573,21 +591,21 @@ const T = {
     settingsBtn:    '⚙ Settings',
     headerLabel:    'DAYS LEFT',
     headerUnit:     'TO FREEDOM',
-    panelLabel:     '📅  Leave / Comp days',
+    panelLabel:     '📅  Paid days off / Comp days',
     dateLabel:      'Date',
     addBtn:         'Add',
-    optAnnual:      'Annual leave 🔵',
+    optAnnual:      'Paid day off 🔵',
     optComp:        'Comp day 🟢',
-    badgeAnnual:    'Leave',
+    badgeAnnual:    'Paid',
     badgeComp:      'Comp',
     removeBtn:      'Remove',
     emptyHint:      'Nothing added yet',
     lgToday:        'Today',
     lgWork:         'Work',
-    lgAnnual:       'Leave',
+    lgAnnual:       'Paid day off',
     lgComp:         'Comp day',
     footerBadge:    (d) => `🏁 Last day · ${d}`,
-    footerNote:     'Then using remaining leave · resignation date to follow',
+    footerNote:     (paidDays) => paidDays > 0 ? `${paidDays} paid days off included` : 'Counting from the schedule you entered',
     cheerMsg:       (n, name) => {
       const msgs = [
         `${name ? name + ', you\'re ' : 'You\'re '}almost there. <span class="cheer-accent">${n} days</span> left.`,
@@ -609,14 +627,17 @@ const T = {
   ja: {
     backLabel:      '言語選択',
     subtitle:       '退職カウントダウン · 設定',
-    cacheWarn:      '<strong>⚠ データ保存についての注意</strong><br>設定と有給記録はこのブラウザに保存されます。<strong>キャッシュやサイトデータを削除するとリセットされます</strong>のでご注意ください。',
+    cacheWarn:      '<strong>⚠ データ保存についての注意</strong><br>設定と休みの記録はこのブラウザに保存されます。<strong>キャッシュやサイトデータを削除するとリセットされます</strong>のでご注意ください。',
     labelName:      'お名前（任意）',
     placeholderName:'例：さくら',
     labelLastday:   '最終出勤日',
+    labelPaidDays:  '残りの有給休暇',
+    paidDaysNote:   '契約書、会社規定、給与明細などをもとに自分で入力してください。法的判断は行いません。',
+    placeholderPaidDays: '例：3',
     labelOffdays:   '定休日',
     labelHoliday:   '祝日',
     holidayTitle:   '韓国の祝日を自動除外',
-    holidaySub:     '2025年の平日祝日のみ適用',
+    holidaySub:     '2026年の韓国の祝日を基準',
     startBtn:       'はじめる →',
     errNoDate:      '最終出勤日を選んでください。',
     errPastDate:    '最終出勤日は今日より後にしてください。',
@@ -639,7 +660,7 @@ const T = {
     lgAnnual:       '有給',
     lgComp:         '代休',
     footerBadge:    (d) => `🏁 最終出勤日 · ${d}`,
-    footerNote:     '有給消化後、退職予定',
+    footerNote:     (paidDays) => paidDays > 0 ? `残りの有給休暇 ${paidDays}日を反映中` : '入力した予定をもとに計算中',
     cheerMsg:       (n, name) => {
       const msgs = [
         `${name ? name + '、' : ''}今日もよく頑張った。あと<span class="cheer-accent">${n}回</span>。`,
@@ -665,10 +686,13 @@ const T = {
     labelName:      'Tu nombre (opcional)',
     placeholderName:'Ej: María',
     labelLastday:   'Último día de trabajo',
+    labelPaidDays:  'Días libres pagados restantes',
+    paidDaysNote:   'Introduce el dato tú mismo según tu contrato, política de empresa o nómina. Esta app no hace interpretaciones legales.',
+    placeholderPaidDays: 'Ej: 3',
     labelOffdays:   'Días libres regulares',
     labelHoliday:   'Festivos',
     holidayTitle:   'Excluir automáticamente festivos coreanos',
-    holidaySub:     'Festivos entre semana de 2025',
+    holidaySub:     'Basado en festivos coreanos de 2026',
     startBtn:       'Empezar →',
     errNoDate:      'Elige tu último día de trabajo.',
     errPastDate:    'El último día debe ser en el futuro.',
@@ -677,21 +701,21 @@ const T = {
     settingsBtn:    '⚙ Ajustes',
     headerLabel:    'DÍAS QUE QUEDAN',
     headerUnit:     'PARA LA LIBERTAD',
-    panelLabel:     '📅  Vacaciones / Días compensados',
+    panelLabel:     '📅  Días libres pagados / Días compensados',
     dateLabel:      'Fecha',
     addBtn:         'Añadir',
-    optAnnual:      'Vacaciones 🔵',
+    optAnnual:      'Día libre pagado 🔵',
     optComp:        'Día compensado 🟢',
-    badgeAnnual:    'Vac.',
+    badgeAnnual:    'Pagado',
     badgeComp:      'Comp.',
     removeBtn:      'Quitar',
     emptyHint:      'Nada añadido aún',
     lgToday:        'Hoy',
     lgWork:         'Trabajo',
-    lgAnnual:       'Vacaciones',
+    lgAnnual:       'Libre pagado',
     lgComp:         'Compensado',
     footerBadge:    (d) => `🏁 Último día · ${d}`,
-    footerNote:     'Usando vacaciones restantes · fecha de baja por confirmar',
+    footerNote:     (paidDays) => paidDays > 0 ? `Incluye ${paidDays} días libres pagados` : 'Calculando según el calendario introducido',
     cheerMsg:       (n, name) => {
       const msgs = [
         `${name ? name + ', casi ' : 'Casi '}llegaste. Quedan <span class="cheer-accent">${n} días</span>.`,
@@ -713,14 +737,19 @@ const T = {
 };
 
 // ══════════════════════════════════════════
-//  한국 공휴일 2025
+//  한국 공휴일 2026
 // ══════════════════════════════════════════
 const KR_HOLIDAYS = new Set([
-  '2025-01-01','2025-01-28','2025-01-29','2025-01-30',
-  '2025-03-01','2025-05-05','2025-05-06',
-  '2025-06-06','2025-08-15',
-  '2025-10-03','2025-10-05','2025-10-06','2025-10-07','2025-10-08','2025-10-09',
-  '2025-12-25'
+  '2026-01-01',
+  '2026-02-16','2026-02-17','2026-02-18',
+  '2026-03-01','2026-03-02',
+  '2026-05-01','2026-05-05','2026-05-24','2026-05-25',
+  '2026-06-03','2026-06-06',
+  '2026-07-17',
+  '2026-08-15','2026-08-17',
+  '2026-09-24','2026-09-25','2026-09-26',
+  '2026-10-03','2026-10-05','2026-10-09',
+  '2026-12-25'
 ]);
 
 // ══ 상태 ══
@@ -758,6 +787,18 @@ function isWorkDay(d) {
   if (userOffDays[dateKey(d)]) return false;
   return isBaseWorkDay(d);
 }
+function getPaidDaysRemaining() {
+  const raw = Number(cfg?.paidDaysRemaining || 0);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Math.floor(raw));
+}
+function countScheduledPaidDays() {
+  return Object.keys(userOffDays).filter(k => {
+    if (userOffDays[k] !== 'annual') return false;
+    const d = keyToDate(k);
+    return d >= TODAY && d <= cfg.lastDay;
+  }).length;
+}
 
 // ══ localStorage ══
 const LS_KEY = 'quit_countdown_v1';
@@ -766,6 +807,7 @@ function saveData() {
     localStorage.setItem(LS_KEY, JSON.stringify({ lang, cfg: {
       name: cfg.name,
       lastDayKey: dateKey(cfg.lastDay),
+      paidDaysRemaining: getPaidDaysRemaining(),
       offDows: cfg.offDows,
       useHoliday: cfg.useHoliday
     }, userOffDays }));
@@ -781,6 +823,7 @@ function loadData() {
     cfg = {
       name: c.name,
       lastDay: keyToDate(c.lastDayKey),
+      paidDaysRemaining: Number.isFinite(Number(c.paidDaysRemaining)) ? Math.max(0, Math.floor(Number(c.paidDaysRemaining))) : 0,
       offDows: c.offDows,
       useHoliday: c.useHoliday
     };
@@ -812,6 +855,9 @@ function buildSetupUI() {
   document.getElementById('s-label-name').textContent   = t.labelName;
   document.getElementById('s-name').placeholder         = t.placeholderName;
   document.getElementById('s-label-lastday').textContent= t.labelLastday;
+  document.getElementById('s-label-paiddays').textContent = t.labelPaidDays;
+  document.getElementById('s-paid-days').placeholder = t.placeholderPaidDays;
+  document.getElementById('s-paid-days-note').textContent = t.paidDaysNote;
   document.getElementById('s-label-offdays').textContent= t.labelOffdays;
   document.getElementById('s-label-holiday').textContent= t.labelHoliday;
   document.getElementById('s-holiday-title').textContent= t.holidayTitle;
@@ -837,6 +883,7 @@ function startApp() {
   const t          = T[lang];
   const nameVal    = document.getElementById('s-name').value.trim();
   const lastDayVal = document.getElementById('s-lastday').value;
+  const paidDaysRemaining = Math.max(0, Math.floor(Number(document.getElementById('s-paid-days').value) || 0));
   const useHoliday = document.getElementById('s-holiday').checked;
   const errEl      = document.getElementById('setup-err');
 
@@ -852,7 +899,7 @@ function startApp() {
   if (offDows.length>=6){ errEl.textContent = t.errTooManyDow;  return; }
 
   errEl.textContent = '';
-  cfg = { name: nameVal, lastDay, offDows, useHoliday };
+  cfg = { name: nameVal, lastDay, paidDaysRemaining, offDows, useHoliday };
   userOffDays = {};
 
   buildMainUI();
@@ -885,7 +932,6 @@ function buildMainUI() {
   const lastDayKey = dateKey(cfg.lastDay);
   const [y,m,d] = lastDayKey.split('-');
   document.getElementById('footer-badge').textContent = t.footerBadge(`${y}.${m}.${d}`);
-  document.getElementById('footer-note').textContent  = t.footerNote;
 
   // 이름
   const nameEl = document.getElementById('header-name');
@@ -985,9 +1031,12 @@ function renderHeader() {
   }
   const total     = allWork.length;
   const done      = allWork.filter(d => d < TODAY).length;
-  const remaining = total - done;
+  const scheduledPaidDays = countScheduledPaidDays();
+  const flexiblePaidDays = Math.max(0, getPaidDaysRemaining() - scheduledPaidDays);
+  const remaining = Math.max(0, total - done - flexiblePaidDays);
 
   document.getElementById('remaining-count').textContent = remaining;
+  document.getElementById('footer-note').textContent = t.footerNote(getPaidDaysRemaining());
   const pct = total > 0 ? Math.round((done/total)*100) : 0;
   document.getElementById('progress-fill').style.width = pct + '%';
 
