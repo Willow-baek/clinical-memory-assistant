@@ -15,6 +15,7 @@ const LAST_CLOUD_SNAPSHOT_KEY = "clinical-memory-last-cloud-snapshot-at";
 const LOCAL_CONFIG = window.CMA_CONFIG || {};
 const DEFAULT_SUPABASE_URL = LOCAL_CONFIG.supabaseUrl || "https://mwwbqzdpnvnrvcdfxflh.supabase.co";
 const DEFAULT_SUPABASE_ANON_KEY = LOCAL_CONFIG.supabaseAnonKey || "";
+const SCHEDULE_IMAGE_FUNCTION_PATH = "/functions/v1/analyze-schedule-image";
 
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const PROMPT_TEMPLATES = window.promptTemplates || window.CMA_PROMPT_TEMPLATES || {};
@@ -3038,7 +3039,14 @@ async function handleImportLanePaste(event) {
     const file = imageItem.getAsFile();
     if (file) {
       updateImportLaneFromDOM(laneKey);
-      if (lane.kind === "combined_schedule" || lane.kind === "transcript_cleanup") {
+      if (lane.kind === "combined_schedule") {
+        const preview = await fileToDataURL(file);
+        lane.imageName = file.name || `pasted-${new Date().toISOString()}.png`;
+        lane.imagePreview = preview;
+        lane.screenshotCount = (lane.screenshotCount || 0) + 1;
+        lane.ocrStatus = "AI 스케줄 분석 중...";
+        shouldRunOcr = true;
+      } else if (lane.kind === "transcript_cleanup") {
         lane.imageName = "";
         lane.imagePreview = "";
         lane.ocrStatus = "이미지는 외부 AI에서 처리하고, 정리된 텍스트만 붙여넣어 주세요.";
@@ -3056,7 +3064,7 @@ async function handleImportLanePaste(event) {
 
   if (changed) {
     event.preventDefault();
-    toast(shouldRunOcr ? "이미지를 읽고 있습니다." : "붙여넣었습니다. 텍스트가 있으면 후보를 만들 수 있습니다.");
+    toast(shouldRunOcr ? "이미지를 분석하고 있습니다." : "붙여넣었습니다. 텍스트가 있으면 후보를 만들 수 있습니다.");
     render();
     if (shouldRunOcr) await runLaneOcr(laneKey);
   }
@@ -3074,18 +3082,75 @@ function clearImportLane(laneKey) {
   render();
 }
 
+async function analyzeScheduleImageLane(laneKey) {
+  const lane = importLanes[laneKey];
+  if (!lane?.imagePreview) return;
+  updateImportLaneFromDOM(laneKey);
+  lane.ocrStatus = "AI가 스케줄 이미지를 분석 중...";
+  render();
+
+  try {
+    const result = await supabaseRequest(SCHEDULE_IMAGE_FUNCTION_PATH, {
+      method: "POST",
+      body: {
+        imageDataUrl: lane.imagePreview,
+        visitDate: lane.date,
+        appointmentDate: lane.appointmentDate || addDays(lane.date, 1),
+        therapist: lane.therapist || "백한솔",
+      },
+    });
+    const text = normalizeScheduleAnalysisText(result);
+    if (!text) throw new Error("분석 결과가 비어 있습니다.");
+
+    lane.text = text;
+    lane.ocrStatus = "AI 분석 완료, 스케줄 반영 중";
+    render();
+    processImportLane(laneKey, { auto: true, skipDomUpdate: true });
+  } catch (error) {
+    lane.ocrStatus = `AI 분석 실패: ${error.message}. 외부 AI 결과 텍스트를 붙여넣어 주세요.`;
+    toast(`스케줄 이미지 분석 실패: ${error.message}`);
+    render();
+  }
+}
+
+function normalizeScheduleAnalysisText(result) {
+  if (typeof result?.text === "string" && result.text.trim()) return result.text.trim();
+  const visits = formatScheduleAnalysisRows(result?.visits);
+  const appointments = formatScheduleAnalysisRows(result?.appointments);
+  const text = ["[VISITS]", ...visits, "", "[APPOINTMENTS]", ...appointments].join("\n").trim();
+  return visits.length || appointments.length ? text : "";
+}
+
+function formatScheduleAnalysisRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const date = normalizeDateText(row?.date || "");
+      const time = normalizeTime(row?.time || "");
+      const patientName = String(row?.patient_name || row?.patientName || "").trim().replace(/\s*님$/, "");
+      const minutes = normalizeTreatmentMinutes(row?.duration_minutes || row?.durationMinutes || "");
+      const rawMinutes = String(row?.duration_minutes || row?.durationMinutes || "").trim();
+      return [date || "?", time || "?", patientName || "?", minutes || rawMinutes || "?"].join(" ");
+    })
+    .filter((line) => !/\?\s+\?\s+\?\s+\?$/.test(line));
+}
+
 async function runLaneOcr(laneKey) {
   const lane = importLanes[laneKey];
   if (!lane?.imagePreview) return;
-  if (!window.Tesseract?.recognize) {
-    lane.ocrStatus = "OCR 엔진 로딩 실패. 텍스트를 붙여넣어 주세요.";
-    render();
+  if (lane.kind === "combined_schedule") {
+    await analyzeScheduleImageLane(laneKey);
     return;
   }
-  if (lane.kind === "combined_schedule" || lane.kind === "transcript_cleanup") {
+  if (lane.kind === "transcript_cleanup") {
     lane.ocrStatus = "이미지는 외부 AI에서 처리하고, 정리된 텍스트만 붙여넣어 주세요.";
     lane.imageName = "";
     lane.imagePreview = "";
+    render();
+    return;
+  }
+  if (!window.Tesseract?.recognize) {
+    lane.ocrStatus = "OCR 엔진 로딩 실패. 텍스트를 붙여넣어 주세요.";
     render();
     return;
   }
