@@ -1,0 +1,4 @@
+project_id = "mwwbqzdpnvnrvcdfxflh"
+
+[functions.analyze-schedule-image]
+verify_jwt = true

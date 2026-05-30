@@ -26,16 +26,22 @@ The image is not stored by the app or function.
 
 Do not commit API keys to GitHub.
 
+First, log in to the Supabase CLI:
+
+```bash
+npx supabase login --token <SUPABASE_ACCESS_TOKEN>
+```
+
 Set the OpenAI key in Supabase:
 
 ```bash
-supabase secrets set OPENAI_API_KEY=sk-...
+npx supabase secrets set OPENAI_API_KEY=sk-... --project-ref mwwbqzdpnvnrvcdfxflh
 ```
 
 Optional model override:
 
 ```bash
-supabase secrets set OPENAI_SCHEDULE_MODEL=gpt-4.1-mini
+npx supabase secrets set OPENAI_SCHEDULE_MODEL=gpt-4.1-mini --project-ref mwwbqzdpnvnrvcdfxflh
 ```
 
 ## Deploy
@@ -43,7 +49,7 @@ supabase secrets set OPENAI_SCHEDULE_MODEL=gpt-4.1-mini
 From the project folder:
 
 ```bash
-supabase functions deploy analyze-schedule-image
+npx supabase functions deploy analyze-schedule-image --project-ref mwwbqzdpnvnrvcdfxflh --use-api
 ```
 
 The frontend calls:
