@@ -884,6 +884,154 @@ select:focus {
   margin-bottom: 16px;
 }
 
+/* ===== API WORKBENCH ===== */
+
+.api-workbench,
+.inbox-hero {
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.api-workbench {
+  padding: 14px;
+}
+
+.api-workbench-head,
+.inbox-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.api-workbench-head {
+  margin-bottom: 12px;
+}
+
+.eyebrow {
+  display: block;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.api-workbench h2,
+.inbox-hero h2 {
+  margin-top: 3px;
+  font-size: 18px;
+}
+
+.api-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.api-flow-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 92px;
+  padding: 11px;
+  background: #fbfcfc;
+}
+
+.api-flow-card.schedule {
+  background: #f5f6df;
+  border-color: #dfe4ba;
+}
+
+.api-flow-card.transcript {
+  background: #eef6f6;
+  border-color: #cfe3e4;
+}
+
+.api-flow-card.review {
+  background: #fff8e8;
+  border-color: #efdfb9;
+}
+
+.api-flow-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(29, 37, 40, 0.07);
+  color: var(--ink);
+}
+
+.api-flow-icon .ti {
+  font-size: 19px;
+}
+
+.api-flow-card strong,
+.api-flow-card span {
+  display: block;
+  min-width: 0;
+}
+
+.api-flow-card strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.api-flow-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.api-flow-count {
+  min-width: 48px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent) !important;
+  padding: 5px 8px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.inbox-hero {
+  padding: 16px 18px;
+}
+
+.inbox-hero p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.inbox-hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(86px, 1fr));
+  gap: 8px;
+}
+
+.inbox-hero-metrics .metric {
+  padding: 10px 12px;
+  min-width: 86px;
+}
+
+.inbox-hero-metrics .metric strong {
+  font-size: 18px;
+}
+
+.inbox-hero-metrics .metric span {
+  font-size: 11px;
+}
+
 .paste-lane {
   display: grid;
   gap: 8px;
@@ -994,9 +1142,37 @@ select:focus {
   gap: 7px;
 }
 
+.paste-lane-actions.has-audio {
+  grid-template-columns: auto 1fr auto;
+}
+
 .paste-lane-actions .primary-button,
 .paste-lane-actions .ghost-button {
   padding: 8px 10px;
+}
+
+.audio-upload-button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.audio-upload-button input {
+  display: none;
+}
+
+.audio-upload-button:hover {
+  border-color: var(--accent);
 }
 
 /* ===== PROMPT PANEL ===== */
@@ -1007,6 +1183,37 @@ select:focus {
   border-radius: 10px;
   box-shadow: var(--shadow);
   margin-bottom: 16px;
+}
+
+.fallback-panel {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fallback-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  padding: 11px 14px;
+  color: var(--ink);
+  font-weight: 800;
+  list-style: none;
+}
+
+.fallback-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.fallback-panel summary small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fallback-panel[open] summary {
+  border-bottom: 1px solid var(--line);
 }
 
 .prompt-grid {
@@ -1368,7 +1575,7 @@ select:focus {
   color: var(--ink);
   height: max(42px, calc((var(--duration-slots, 1) * var(--calendar-row-height)) - 10px));
   margin-top: calc(var(--start-offset-slots, 0) * var(--calendar-row-height));
-  padding: 7px 8px 6px;
+  padding: 7px 7px 6px;
   position: relative;
   z-index: 1;
   text-align: left;
@@ -1443,7 +1650,7 @@ select:focus {
 .appointment-title {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
   overflow: hidden;
   white-space: nowrap;
   width: 100%;
@@ -1451,7 +1658,7 @@ select:focus {
 
 .appointment-time {
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1.15;
   white-space: nowrap;
@@ -1460,7 +1667,7 @@ select:focus {
 
 .appointment-name {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.2;
   overflow: hidden;
@@ -1472,7 +1679,7 @@ select:focus {
 .appointment-duration {
   display: inline-block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
@@ -1480,6 +1687,48 @@ select:focus {
 }
 
 /* ===== HISTORY PANEL ===== */
+
+.clinical-chart-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfc;
+  padding: 14px;
+}
+
+.clinical-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.clinical-chart-head h3 {
+  font-size: 16px;
+}
+
+.inline-field-grid {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.pivot-log {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #efdfb9;
+  border-radius: 8px;
+  background: #fff8e8;
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pivot-log strong {
+  color: var(--ink);
+  font-size: 13px;
+}
 
 .history-panel .panel-body {
   display: grid;
@@ -1825,6 +2074,7 @@ select:focus {
   .grid.two,
   .grid.three,
   .dashboard-layout,
+  .api-flow-grid,
   .summary-strip,
   .patient-brief,
   .prompt-grid,

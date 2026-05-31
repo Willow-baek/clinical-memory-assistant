@@ -16,6 +16,8 @@ const LOCAL_CONFIG = window.CMA_CONFIG || {};
 const DEFAULT_SUPABASE_URL = LOCAL_CONFIG.supabaseUrl || "https://mwwbqzdpnvnrvcdfxflh.supabase.co";
 const DEFAULT_SUPABASE_ANON_KEY = LOCAL_CONFIG.supabaseAnonKey || "";
 const SCHEDULE_IMAGE_FUNCTION_PATH = "/functions/v1/analyze-schedule-image";
+const TRANSCRIPT_CHART_FUNCTION_PATH = "/functions/v1/analyze-transcript-chart";
+const TRANSCRIBE_AUDIO_FUNCTION_PATH = "/functions/v1/transcribe-audio";
 
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const PROMPT_TEMPLATES = window.promptTemplates || window.CMA_PROMPT_TEMPLATES || {};
@@ -139,7 +141,7 @@ let selectedVisitId = null;
 let dashboardWeekStart = todayISO();
 let selectedCalendarKind = getAppointments()[0]?.id ? "appointment" : "visit";
 let selectedScheduleId = getAppointments()[0]?.id || state.visits[0]?.id || null;
-let dashboardImportOpen = false;
+let dashboardImportOpen = true;
 let importLanes = {
   combinedSchedule: makeImportLane("combinedSchedule"),
   transcriptCleanup: makeImportLane("transcriptCleanup"),
@@ -172,7 +174,7 @@ function makeImportLane(key) {
   const defaults = {
     combinedSchedule: {
       kind: "combined_schedule",
-      title: "스케줄 통합 Import",
+      title: "Smart CRM 캡쳐",
       date: todayISO(),
       appointmentDate: addDays(todayISO(), 1),
       therapist: "백한솔",
@@ -181,15 +183,15 @@ function makeImportLane(key) {
     },
     transcriptCleanup: {
       kind: "transcript_cleanup",
-      title: "Transcript 정리 결과",
+      title: "Whisper / 차트 텍스트",
       date: todayISO(),
       therapist: "백한솔",
       patientHint: "",
-      sourceFile: "external ai transcript cleanup",
+      sourceFile: "transcript chart import",
     },
     doctorChart: {
       kind: "doctor_chart",
-      title: "초진 차트 정리 결과",
+      title: "초진 차트 캡쳐",
       date: todayISO(),
       therapist: "",
       patientHint: "",
@@ -203,6 +205,8 @@ function makeImportLane(key) {
     text: "",
     imageName: "",
     imagePreview: "",
+    audioName: "",
+    audioRecordedTime: "",
     ocrStatus: "",
     screenshotCount: 0,
   };
@@ -275,7 +279,7 @@ function normalizeAppointmentRecord(item) {
 
 function normalizeVisitRecord(visit) {
   const patientNameText = visit.patientNameText || visit.patientName || "";
-  return {
+  const normalized = {
     ...visit,
     id: visit.id || uid("visit"),
     recordKind: "visit",
@@ -294,6 +298,69 @@ function normalizeVisitRecord(visit) {
     matchStatus: visit.matchStatus || (visit.sourceInboxId ? "confirmed" : "unlinked"),
     needsReview: Boolean(visit.needsReview),
     createdAt: visit.createdAt || new Date().toISOString(),
+  };
+  normalized.clinicalChart = normalizeClinicalChart(visit.clinicalChart || {}, normalized);
+  return normalized;
+}
+
+function normalizeClinicalChart(chart = {}, visit = {}) {
+  return {
+    doctorNote: chart.doctorNote || "",
+    patientWords: chart.patientWords || "",
+    ptAssessment: {
+      redFlag: chart.ptAssessment?.redFlag || "",
+      specificity: chart.ptAssessment?.specificity || "",
+      painType: chart.ptAssessment?.painType || "",
+      h1: chart.ptAssessment?.h1 || "",
+      h2: chart.ptAssessment?.h2 || "",
+      signal: chart.ptAssessment?.signal || "",
+      contextVariables: normalizeTextList(chart.ptAssessment?.contextVariables),
+    },
+    plan: {
+      goal: chart.plan?.goal || "",
+      frequency: chart.plan?.frequency || "",
+      todayTreatment: chart.plan?.todayTreatment || visit.treatment || "",
+      hep: chart.plan?.hep || visit.homework || visit.hep || "",
+    },
+    next: {
+      questions: normalizeTextList(chart.next?.questions),
+      contextVariables: normalizeTextList(chart.next?.contextVariables),
+      noise: normalizeTextList(chart.next?.noise),
+    },
+    judgment: {
+      direction: chart.judgment?.direction || "",
+      reason: chart.judgment?.reason || "",
+    },
+    signalTrackingRows: Array.isArray(chart.signalTrackingRows)
+      ? chart.signalTrackingRows.map(normalizeTrackingRow).filter((item) => item.name)
+      : [],
+    pivotLog: Array.isArray(chart.pivotLog) ? chart.pivotLog : [],
+  };
+}
+
+function normalizeTextList(value) {
+  if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
+  return String(value || "")
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeTrackingRow(item = {}) {
+  if (typeof item === "string") {
+    const [name, ...rest] = item.split(":");
+    return {
+      id: uid("track"),
+      name: name?.trim() || "",
+      value: rest.join(":").trim() || "mentioned",
+      trend: "check",
+    };
+  }
+  return {
+    id: item.id || uid("track"),
+    name: String(item.name || "").trim(),
+    value: String(item.value || "mentioned").trim() || "mentioned",
+    trend: item.trend || "check",
   };
 }
 
@@ -432,8 +499,8 @@ function setView(view) {
   });
 
   const copy = {
-    dashboard: ["오늘", "스케줄, 녹음, 차트 초안을 한 번에 확인합니다."],
-    inbox: ["Import Inbox", "스케줄 후보, 녹음 전사, 의사 차트 캡쳐를 확인합니다."],
+    dashboard: ["오늘", "캡쳐, 녹음, 차트 초안을 한 번에 처리합니다."],
+    inbox: ["AI Inbox", "자동 처리 결과와 검토 필요한 항목을 확인합니다."],
     patients: ["환자", "환자 코드와 추적 변수를 관리합니다."],
     visits: ["방문 기록", "재진 브리핑과 차트 초안을 편집합니다."],
     terms: ["용어 사전", "한국어 전사 오류와 임상 표현을 보정합니다."],
@@ -751,7 +818,7 @@ function findBestScheduleForInbox(inbox) {
   return findBestRecordForInbox(inbox);
 }
 
-function createVisitFromInbox(inboxId, scheduleId = null) {
+async function createVisitFromInbox(inboxId, scheduleId = null) {
   const inbox = state.rawInbox.find((entry) => entry.id === inboxId);
   if (!inbox) return;
 
@@ -811,10 +878,13 @@ function createVisitFromInbox(inboxId, scheduleId = null) {
   selectedVisitId = visit.id;
   saveState();
   toast("방문 기록과 차트 초안을 만들었습니다.");
+  if (supabaseSession?.access_token) {
+    await generateAIChartForVisit(visit.id, { silent: true });
+  }
   setView("visits");
 }
 
-function linkTranscriptToVisit(inboxId, visitId) {
+async function linkTranscriptToVisit(inboxId, visitId) {
   const inbox = state.rawInbox.find((entry) => entry.id === inboxId);
   const visit = state.visits.find((entry) => entry.id === visitId);
   if (!inbox || !visit) return;
@@ -831,6 +901,9 @@ function linkTranscriptToVisit(inboxId, visitId) {
   if (visit.patientId) selectedPatientId = visit.patientId;
   saveState();
   toast("Transcript를 Visit에 연결했습니다.");
+  if (supabaseSession?.access_token) {
+    await generateAIChartForVisit(visit.id, { silent: true });
+  }
   render();
 }
 
@@ -964,6 +1037,167 @@ function buildChartDraftFromSections(sections, visit, patient) {
     `Next: ${sections.NEXT_CHECK || "?"}`,
     sections.SPECIAL_NOTES ? `Notes: ${sections.SPECIAL_NOTES}` : "",
   ].filter(Boolean).join("\n");
+}
+
+async function generateAIChartForVisit(visitId, options = {}) {
+  const silent = Boolean(options.silent);
+  const visit = state.visits.find((entry) => entry.id === visitId);
+  if (!visit) return false;
+  const transcript = (visit.transcript || "").trim();
+  if (!transcript) {
+    if (!silent) toast("AI 차트를 만들 transcript가 없습니다.");
+    return false;
+  }
+  if (!supabaseSession?.access_token) {
+    if (!silent) toast("AI 차트 생성은 Supabase 로그인이 필요합니다.");
+    return false;
+  }
+
+  const patient = getVisitPatient(visit) || { name: visit.patientNameText || "환자 확인", code: "" };
+  visit.aiChartStatus = "generating";
+  saveState({ skipAutoSync: true });
+  render();
+
+  try {
+    const result = await supabaseRequest(TRANSCRIPT_CHART_FUNCTION_PATH, {
+      method: "POST",
+      body: {
+        transcript,
+        patientName: patient.name || visit.patientNameText || "",
+        visitDate: visit.date || "",
+        visitTime: visit.time || "",
+        durationMinutes: visit.durationMinutes || "",
+        chartStyle: state.settings.defaultChartStyle || "SOAP-lite",
+      },
+    });
+    applyAIChartResultToVisit(visit, result);
+    visit.aiChartStatus = "ready";
+    visit.aiChartModel = result.model || "";
+    visit.aiChartUpdatedAt = new Date().toISOString();
+    saveState();
+    if (!silent) toast("AI 차트 초안을 만들었습니다.");
+    render();
+    return true;
+  } catch (error) {
+    visit.aiChartStatus = "error";
+    visit.aiChartError = error.message;
+    saveState();
+    if (!silent) toast(`AI 차트 생성 실패: ${error.message}`);
+    render();
+    return false;
+  }
+}
+
+function applyAIChartResultToVisit(visit, result = {}) {
+  const sections = {
+    SUBJECTIVE: cleanAIText(result.subjective),
+    OBJECTIVE: cleanAIText(result.objective),
+    TREATMENT: cleanAIText(result.treatment),
+    HOMEWORK: cleanAIText(result.homework),
+    ASSESSMENT: cleanAIText(result.assessment),
+    NEXT_CHECK: cleanAIText(result.next_check),
+    SPECIAL_NOTES: cleanAIText(result.special_notes),
+  };
+  const patient = getVisitPatient(visit) || { name: visit.patientNameText || "환자 확인", code: "" };
+
+  visit.summary = firstUseful(sections.SUBJECTIVE, sections.ASSESSMENT, visit.summary);
+  visit.treatment = firstUseful(sections.TREATMENT, visit.treatment);
+  visit.homework = firstUseful(sections.HOMEWORK, visit.homework);
+  visit.hep = firstUseful(sections.HOMEWORK, visit.hep);
+  visit.nextFocus = firstUseful(sections.NEXT_CHECK, visit.nextFocus);
+  visit.noise = firstUseful(sections.SPECIAL_NOTES, visit.noise);
+  visit.signals = normalizeAIStringList(result.signals);
+  if (!visit.signals.length && sections.ASSESSMENT) visit.signals = splitStructuredList(sections.ASSESSMENT);
+  visit.tracking = normalizeAITracking(result.tracking_variables);
+  if (!visit.tracking.length) visit.tracking = inferTracking(visit.transcript || "");
+  visit.clinicalChart = buildClinicalChartFromAIResult(result, visit, sections);
+  visit.draft = cleanAIText(result.chart_draft) || buildChartDraftFromSections(sections, visit, patient);
+}
+
+function buildClinicalChartFromAIResult(result = {}, visit = {}, sections = {}) {
+  const previous = normalizeClinicalChart(visit.clinicalChart || {}, visit);
+  const assessment = result.pt_assessment || {};
+  const plan = result.plan || {};
+  const next = result.next || {};
+  const judgment = result.trend_judgment || {};
+  const pivot = result.pivot_suggestion || {};
+  const pivotLog = [...previous.pivotLog];
+
+  if (pivot.needed === true) {
+    pivotLog.unshift({
+      id: uid("pivot"),
+      date: visit.date || todayISO(),
+      previousPainType: previous.ptAssessment.painType || "",
+      newPainType: cleanAIText(pivot.new_pain_type) || "",
+      reason: cleanAIText(pivot.reason) || "",
+      createdAt: new Date().toISOString(),
+      suggested: true,
+    });
+  }
+
+  return normalizeClinicalChart({
+    doctorNote: cleanAIText(result.doctor_note) || previous.doctorNote,
+    patientWords: cleanAIText(result.patient_words) || sections.SUBJECTIVE || previous.patientWords,
+    ptAssessment: {
+      redFlag: cleanAIText(assessment.red_flag) || previous.ptAssessment.redFlag,
+      specificity: cleanAIText(assessment.specificity) || previous.ptAssessment.specificity,
+      painType: cleanAIText(assessment.pain_type) || previous.ptAssessment.painType,
+      h1: cleanAIText(assessment.h1) || previous.ptAssessment.h1,
+      h2: cleanAIText(assessment.h2) || previous.ptAssessment.h2,
+      signal: cleanAIText(assessment.signal) || sections.ASSESSMENT || previous.ptAssessment.signal,
+      contextVariables: normalizeAIStringList(assessment.context_variables).length
+        ? normalizeAIStringList(assessment.context_variables)
+        : previous.ptAssessment.contextVariables,
+    },
+    plan: {
+      goal: cleanAIText(plan.goal) || previous.plan.goal,
+      frequency: cleanAIText(plan.frequency) || previous.plan.frequency,
+      todayTreatment: cleanAIText(plan.today_treatment) || sections.TREATMENT || previous.plan.todayTreatment,
+      hep: cleanAIText(plan.hep) || sections.HOMEWORK || previous.plan.hep,
+    },
+    next: {
+      questions: normalizeAIStringList(next.questions).length ? normalizeAIStringList(next.questions) : previous.next.questions,
+      contextVariables: normalizeAIStringList(next.context_variables).length
+        ? normalizeAIStringList(next.context_variables)
+        : previous.next.contextVariables,
+      noise: normalizeAIStringList(next.noise).length ? normalizeAIStringList(next.noise) : previous.next.noise,
+    },
+    judgment: {
+      direction: cleanAIText(judgment.direction) || previous.judgment.direction,
+      reason: cleanAIText(judgment.reason) || previous.judgment.reason,
+    },
+    signalTrackingRows: normalizeAITracking(result.signal_tracking_rows).length
+      ? normalizeAITracking(result.signal_tracking_rows)
+      : normalizeAITracking(result.tracking_variables).length
+        ? normalizeAITracking(result.tracking_variables)
+        : previous.signalTrackingRows,
+    pivotLog,
+  }, visit);
+}
+
+function cleanAIText(value) {
+  const text = String(value || "").trim();
+  return text === "?" ? "" : text;
+}
+
+function firstUseful(...values) {
+  return values.find((value) => String(value || "").trim() && String(value).trim() !== "?") || "";
+}
+
+function normalizeAIStringList(value) {
+  return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function normalizeAITracking(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      id: uid("track"),
+      name: String(item?.name || "").trim(),
+      value: String(item?.value || "mentioned").trim() || "mentioned",
+      trend: "check",
+    }))
+    .filter((item) => item.name);
 }
 
 function readScheduleCandidateInputs(id) {
@@ -1492,6 +1726,7 @@ function renderDashboard(query = "") {
   }
 
   container.innerHTML = `
+    ${renderApiWorkbench(weekDates, appointmentsWeek, visitsWeek, inbox)}
     <div class="dashboard-layout">
       <section class="panel weekly-panel">
         <div class="panel-header">
@@ -1540,6 +1775,56 @@ function renderDashboard(query = "") {
   `;
 }
 
+function renderApiWorkbench(weekDates, appointmentsWeek, visitsWeek, inbox) {
+  const today = todayISO();
+  const todayVisits = visitsWeek.filter((visit) => visit.date === today).length;
+  const upcomingAppointments = appointmentsWeek.filter((item) => item.date !== today).length;
+  const newTranscripts = inbox.filter((item) => item.type === "transcript").length;
+  const reviewItems = [
+    ...appointmentsWeek.filter((item) => item.needsReview),
+    ...visitsWeek.filter((item) => item.needsReview || (!item.draft && item.transcript)),
+    ...inbox.filter((item) => item.needsReview || item.status === "new"),
+  ].length;
+
+  return `
+    <section class="api-workbench" aria-label="AI 자동 처리 작업대">
+      <div class="api-workbench-head">
+        <div>
+          <span class="eyebrow">API-first workflow</span>
+          <h2>붙여넣으면 앱 안에서 처리합니다</h2>
+        </div>
+        <button class="ghost-button" type="button" data-action="go-inbox">AI Inbox</button>
+      </div>
+      <div class="api-flow-grid">
+        <article class="api-flow-card schedule">
+          <div class="api-flow-icon"><i class="ti ti-camera"></i></div>
+          <div>
+            <strong>Smart CRM 캡쳐</strong>
+            <span>스케줄 이미지를 붙여넣으면 Visit / Appointment가 바로 생성됩니다.</span>
+          </div>
+          <button class="small-button" type="button" data-action="toggle-dashboard-import">${dashboardImportOpen ? "입력 접기" : "입력 열기"}</button>
+        </article>
+        <article class="api-flow-card transcript">
+          <div class="api-flow-icon"><i class="ti ti-microphone"></i></div>
+          <div>
+            <strong>Whisper 전사</strong>
+            <span>오디오나 전사가 들어오면 Visit에 연결하고 차트 초안을 만듭니다.</span>
+          </div>
+          <button class="small-button" type="button" data-action="go-inbox">${newTranscripts} new</button>
+        </article>
+        <article class="api-flow-card review">
+          <div class="api-flow-icon"><i class="ti ti-clipboard-check"></i></div>
+          <div>
+            <strong>검토 후 확정</strong>
+            <span>오늘 Visit ${todayVisits}개, 다음 예약 ${upcomingAppointments}개, 확인 필요 ${reviewItems}개</span>
+          </div>
+          <button class="small-button" type="button" data-action="go-inbox">검토</button>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
 function metric(value, label) {
   return `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`;
 }
@@ -1567,8 +1852,8 @@ function renderWorkflowImportLanes(extraClass = "", options = {}) {
         isCollapsible
           ? `
             <button class="workflow-import-toggle" type="button" data-action="toggle-dashboard-import" aria-expanded="${isOpen ? "true" : "false"}">
-              <span>Import slots</span>
-              <strong>${isOpen ? "Hide" : "Open"}</strong>
+              <span>AI input</span>
+              <strong>${isOpen ? "Close" : "Open"}</strong>
             </button>
           `
           : ""
@@ -1589,17 +1874,15 @@ function renderWorkflowImportLanes(extraClass = "", options = {}) {
 function renderExternalPromptPanel() {
   const prompts = getPromptTemplates();
   return `
-    <section class="prompt-panel">
-      <div class="panel-header">
-        <div>
-          <h2>외부 AI 프롬프트</h2>
-          <p class="note">앱은 API를 직접 호출하지 않습니다. 프롬프트 복사 → 외부 AI 처리 → 결과 붙여넣기 흐름만 지원합니다.</p>
-        </div>
-      </div>
+    <details class="prompt-panel fallback-panel">
+      <summary>
+        <span>수동 fallback 프롬프트</span>
+        <small>API가 안 될 때만 열어서 사용</small>
+      </summary>
       <div class="prompt-grid">
         ${prompts.map(renderPromptCard).join("")}
       </div>
-    </section>
+    </details>
   `;
 }
 
@@ -1628,13 +1911,13 @@ function renderImportLane(lane) {
   const isSchedule = lane.kind === "combined_schedule";
   const isTranscriptCleanup = lane.kind === "transcript_cleanup";
   const defaultStatus = {
-    combined_schedule: "[VISITS] / [APPOINTMENTS] 결과 붙여넣기",
-    transcript_cleanup: "외부 AI로 정리한 차트 section 붙여넣기",
-    doctor_chart: "초진 차트 OCR section 붙여넣기",
+    combined_schedule: "캡쳐 이미지를 붙여넣으면 AI가 자동 분석 후 스케줄러에 반영",
+    transcript_cleanup: "오디오 파일을 선택하거나 Whisper transcript를 붙여넣기",
+    doctor_chart: "초진 차트 이미지는 OCR 후보로 만들고 검토 후 확정",
   }[lane.kind] || "정리 텍스트 붙여넣기";
   const placeholder = {
-    combined_schedule: "[VISITS]\n09:00 김시완 40\n\n[APPOINTMENTS]\n10:30 조선희 60",
-    transcript_cleanup: "[SUBJECTIVE]\n...\n\n[OBJECTIVE]\n...",
+    combined_schedule: "Smart CRM 전체 화면 캡쳐를 여기에 붙여넣기\n또는 [VISITS] / [APPOINTMENTS] 텍스트",
+    transcript_cleanup: "오디오 파일을 선택하거나 Whisper transcript / [SUBJECTIVE] section을 붙여넣기",
     doctor_chart: "[INITIAL_CHART]\ndate:\npatient_name:\nchart_number:",
   }[lane.kind] || "여기에 붙여넣기";
   const badgeLabel = {
@@ -1682,7 +1965,17 @@ function renderImportLane(lane) {
         <textarea id="laneText-${lane.key}" placeholder="${escapeHTML(placeholder)}">${escapeHTML(lane.text)}</textarea>
       </div>
 
-      <div class="paste-lane-actions">
+      <div class="paste-lane-actions ${isTranscriptCleanup ? "has-audio" : ""}">
+        ${
+          isTranscriptCleanup
+            ? `
+              <label class="audio-upload-button">
+                <input type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.mp4,.mpeg,.mpga" data-action="lane-audio-file" data-lane="${lane.key}" />
+                <span>${escapeHTML(lane.audioName || "Audio")}</span>
+              </label>
+            `
+            : ""
+        }
         <button class="primary-button" data-action="lane-process" data-lane="${lane.key}">Apply</button>
         <button class="ghost-button" data-action="lane-clear" data-lane="${lane.key}">Clear</button>
       </div>
@@ -1940,6 +2233,47 @@ function deleteVisitRecord(id) {
   saveState();
   toast("방문 기록을 삭제했습니다.");
   render();
+}
+
+function addPivotLog(visitId) {
+  const visit = state.visits.find((entry) => entry.id === visitId);
+  if (!visit) return;
+  const chart = normalizeClinicalChart(visit.clinicalChart || {}, visit);
+  const previousPainType = chart.ptAssessment.painType || "";
+  const newPainType = window.prompt("새 Pain type을 입력하세요.", previousPainType || "Nociceptive");
+  if (newPainType === null) return;
+  const reason = window.prompt("Pivot 이유를 한 줄로 남겨주세요.", "");
+  if (reason === null) return;
+
+  chart.pivotLog.unshift({
+    id: uid("pivot"),
+    date: visit.date || todayISO(),
+    previousPainType,
+    newPainType: newPainType.trim(),
+    reason: reason.trim(),
+    createdAt: new Date().toISOString(),
+  });
+  chart.ptAssessment.painType = newPainType.trim();
+  chart.signalTrackingRows = getDefaultSignalRowsForPainType(newPainType.trim(), chart.signalTrackingRows);
+  visit.clinicalChart = chart;
+  saveState();
+  toast("Pivot log를 남겼습니다. 이전 데이터는 보존됩니다.");
+  render();
+}
+
+function getDefaultSignalRowsForPainType(painType, existingRows = []) {
+  const existing = existingRows.map(normalizeTrackingRow).filter((item) => item.name);
+  const defaultNames = {
+    Nociceptive: ["ROM", "동작 특정 NRS"],
+    Neuropathic: ["저림 범위", "Functional test"],
+    Nociplastic: ["수면", "피로", "NRS 변동폭"],
+    Inflammatory: ["아침 강직 시간"],
+  }[painType] || [];
+  const existingNames = new Set(existing.map((item) => item.name));
+  const defaults = defaultNames
+    .filter((name) => !existingNames.has(name))
+    .map((name) => ({ id: uid("track"), name, value: "?", trend: "check" }));
+  return [...existing, ...defaults];
 }
 
 function deletePatientRecord(id) {
@@ -2264,8 +2598,19 @@ function renderInbox() {
   const processed = state.rawInbox.filter((item) => item.status !== "new");
 
   container.innerHTML = `
-    ${renderExternalPromptPanel()}
+    <section class="inbox-hero">
+      <div>
+        <span class="eyebrow">AI Inbox</span>
+        <h2>자동 처리 결과를 확인하는 곳</h2>
+        <p>Smart CRM 캡쳐, Whisper transcript, 초진 차트 후보가 여기서 검토 대기 상태로 모입니다.</p>
+      </div>
+      <div class="inbox-hero-metrics">
+        ${metric(newItems.length, "pending")}
+        ${metric(processed.length, "done")}
+      </div>
+    </section>
     ${renderWorkflowImportLanes()}
+    ${renderExternalPromptPanel()}
     <div class="grid two">
       <section class="panel">
         <div class="panel-header">
@@ -2426,7 +2771,14 @@ function renderVisits(query = "") {
       <section class="panel">
         <div class="panel-header">
           <h2>브리핑 / 차트 초안</h2>
-          ${selected ? `<button class="small-button" data-action="regenerate-draft" data-id="${selected.id}">재생성</button>` : ""}
+          ${
+            selected
+              ? `<div class="row wrap">
+                  <button class="small-button" data-action="generate-ai-chart" data-id="${selected.id}">AI 차트 생성</button>
+                  <button class="small-button" data-action="regenerate-draft" data-id="${selected.id}">로컬 재생성</button>
+                </div>`
+              : ""
+          }
         </div>
         <div class="panel-body">
           ${selected ? renderVisitEditor(selected) : emptyState("선택된 방문 없음", "방문 기록을 선택하세요.")}
@@ -2447,7 +2799,7 @@ function renderVisitItem(visit) {
           <h3>${escapeHTML(visit.date)} ${escapeHTML(visit.time)} · ${escapeHTML(patient?.name || visit.patientNameText || "환자 확인")}</h3>
           <div class="meta">${escapeHTML(patient?.code || visit.reviewReason || "patient link 필요")} · ${escapeHTML(visit.visitType)}${duration ? ` · ${escapeHTML(duration)}분` : ""}</div>
         </div>
-        <span class="badge ${visit.needsReview ? "warn" : visit.transcript ? "follow" : "warn"}">${visit.needsReview ? "patient 확인" : visit.transcript ? "linked" : "chart 대기"}</span>
+        <span class="badge ${getVisitStatusBadgeClass(visit)}">${escapeHTML(getVisitStatusLabel(visit))}</span>
       </div>
       <p class="note">${escapeHTML(visit.summary || "summary 없음")}</p>
       <div class="badge-row">${tracking.slice(0, 4).map((item) => `<span class="badge">${escapeHTML(item.name)}</span>`).join("")}</div>
@@ -2455,9 +2807,29 @@ function renderVisitItem(visit) {
   `;
 }
 
+function getVisitStatusLabel(visit) {
+  if (visit.aiChartStatus === "generating") return "AI 생성중";
+  if (visit.aiChartStatus === "ready") return "AI draft";
+  if (visit.aiChartStatus === "error") return "AI 확인";
+  if (visit.needsReview) return "patient 확인";
+  if (visit.transcript) return "linked";
+  return "chart 대기";
+}
+
+function getVisitStatusBadgeClass(visit) {
+  if (visit.aiChartStatus === "ready") return "follow";
+  if (visit.aiChartStatus === "generating" || visit.aiChartStatus === "error" || visit.needsReview) return "warn";
+  return visit.transcript ? "follow" : "warn";
+}
+
 function renderVisitEditor(visit) {
   const patient = state.patients.find((item) => item.id === visit.patientId);
   const patientName = patient?.name || visit.patientNameText || "";
+  const aiStatusText = {
+    generating: "AI 차트 생성 중",
+    ready: `AI 차트 완료${visit.aiChartModel ? ` · ${visit.aiChartModel}` : ""}`,
+    error: `AI 실패 · ${visit.aiChartError || "다시 시도 필요"}`,
+  }[visit.aiChartStatus] || (visit.transcript ? "AI 차트 생성 가능" : "Transcript 필요");
   return `
     <form class="stack" id="visitForm" data-id="${visit.id}">
       <div class="field-grid three">
@@ -2484,8 +2856,8 @@ function renderVisitEditor(visit) {
           <input value="${escapeHTML(visit.transcript ? "Transcript 연결됨" : "차트 대기")}" disabled />
         </div>
         <div class="field">
-          <label>출처</label>
-          <input value="${escapeHTML(visit.recordSource || visit.sourceFile || "manual")}" disabled />
+          <label>AI 상태</label>
+          <input value="${escapeHTML(aiStatusText)}" disabled />
         </div>
       </div>
 
@@ -2493,6 +2865,8 @@ function renderVisitEditor(visit) {
         <label for="visitSummary">요약</label>
         <textarea id="visitSummary" data-learnable="true">${escapeHTML(visit.summary)}</textarea>
       </div>
+
+      ${renderClinicalChartEditor(visit)}
 
       <div class="field-grid">
         <div class="field">
@@ -2539,6 +2913,117 @@ function renderVisitEditor(visit) {
       <div class="panel-header"><h3>원문 transcript</h3></div>
       <div class="panel-body"><div class="transcript">${escapeHTML(visit.transcript || "원문 없음")}</div></div>
     </div>
+  `;
+}
+
+function renderClinicalChartEditor(visit) {
+  const chart = normalizeClinicalChart(visit.clinicalChart || {}, visit);
+  const pivotLog = chart.pivotLog || [];
+  return `
+    <section class="clinical-chart-panel">
+      <div class="clinical-chart-head">
+        <div>
+          <h3>Clinical Thinking Chart</h3>
+          <p class="note">세션은 commit처럼 저장하고, signal / noise / next를 덮어쓰지 않고 추적합니다.</p>
+        </div>
+        <button class="small-button" type="button" data-action="add-pivot-log" data-id="${escapeHTML(visit.id)}">PIVOT</button>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="clinicalPatientWords">PATIENT'S WORDS</label>
+          <textarea id="clinicalPatientWords" data-learnable="true" placeholder="환자가 직접 한 말. 의료용어로 바꾸지 않기.">${escapeHTML(chart.patientWords)}</textarea>
+        </div>
+        <div class="field">
+          <label for="clinicalDoctorNote">DOCTOR'S NOTE</label>
+          <textarea id="clinicalDoctorNote" data-learnable="true" placeholder="진단/처방/측정값/PT 요청사항">${escapeHTML(chart.doctorNote)}</textarea>
+        </div>
+      </div>
+
+      <div class="field-grid three">
+        <div class="field">
+          <label for="clinicalPainType">Pain type</label>
+          <select id="clinicalPainType">
+            ${["", "Nociceptive", "Neuropathic", "Nociplastic", "Inflammatory"].map((type) => `<option value="${escapeHTML(type)}" ${chart.ptAssessment.painType === type ? "selected" : ""}>${escapeHTML(type || "선택")}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label for="clinicalRedFlag">Red flag</label>
+          <select id="clinicalRedFlag">
+            ${["", "N", "Y", "needs review"].map((value) => `<option value="${escapeHTML(value)}" ${chart.ptAssessment.redFlag === value ? "selected" : ""}>${escapeHTML(value || "선택")}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label for="clinicalSpecificity">Specificity</label>
+          <select id="clinicalSpecificity">
+            ${["", "Specific", "Non-specific", "mixed", "needs review"].map((value) => `<option value="${escapeHTML(value)}" ${chart.ptAssessment.specificity === value ? "selected" : ""}>${escapeHTML(value || "선택")}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="clinicalH1">H1</label>
+          <textarea id="clinicalH1" data-learnable="true">${escapeHTML(chart.ptAssessment.h1)}</textarea>
+        </div>
+        <div class="field">
+          <label for="clinicalH2">H2</label>
+          <textarea id="clinicalH2" data-learnable="true">${escapeHTML(chart.ptAssessment.h2)}</textarea>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="clinicalSignalFocus">Signal</label>
+          <textarea id="clinicalSignalFocus" data-learnable="true" placeholder="Pain type과 현재 치료 방향에 직접 연결되는 signal">${escapeHTML(chart.ptAssessment.signal)}</textarea>
+        </div>
+        <div class="field">
+          <label for="clinicalContextVariables">맥락변수</label>
+          <textarea id="clinicalContextVariables" data-learnable="true" placeholder="수면, 피로, HEP, fear avoidance 등">${escapeHTML(chart.ptAssessment.contextVariables.join("\n"))}</textarea>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="clinicalTrackingRows">SIGNAL 추적 행</label>
+          <textarea id="clinicalTrackingRows" data-learnable="true" placeholder="ROM: ?&#10;동작 특정 NRS: ?">${escapeHTML(chart.signalTrackingRows.map((item) => `${item.name}: ${item.value}`).join("\n"))}</textarea>
+        </div>
+        <div class="field">
+          <label for="clinicalJudgment">판단</label>
+          <div class="inline-field-grid">
+            <select id="clinicalJudgmentDirection">
+              ${["", "↑", "→", "↓"].map((value) => `<option value="${escapeHTML(value)}" ${chart.judgment.direction === value ? "selected" : ""}>${escapeHTML(value || "선택")}</option>`).join("")}
+            </select>
+            <input id="clinicalJudgmentReason" value="${escapeHTML(chart.judgment.reason)}" placeholder="이유 한 줄" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="clinicalPlanGoal">PLAN</label>
+          <textarea id="clinicalPlanGoal" data-learnable="true" placeholder="Goal / 치료 텀">${escapeHTML([chart.plan.goal, chart.plan.frequency].filter(Boolean).join("\n"))}</textarea>
+        </div>
+        <div class="field">
+          <label for="clinicalNext">NEXT</label>
+          <textarea id="clinicalNext" data-learnable="true" placeholder="다음에 물어볼 것 / 확인할 맥락변수">${escapeHTML([
+            ...chart.next.questions,
+            ...chart.next.contextVariables.map((item) => `context: ${item}`),
+          ].join("\n"))}</textarea>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="clinicalNoise">Noise</label>
+        <textarea id="clinicalNoise" data-learnable="true" placeholder="이번 progression 판단에서 버릴 것">${escapeHTML(chart.next.noise.join("\n"))}</textarea>
+      </div>
+
+      ${
+        pivotLog.length
+          ? `<div class="pivot-log"><strong>Pivot log</strong>${pivotLog.slice(0, 4).map((item) => `<span>${escapeHTML(item.date || "")}: ${escapeHTML(item.previousPainType || "?")} → ${escapeHTML(item.newPainType || "?")} · ${escapeHTML(item.reason || "")}</span>`).join("")}</div>`
+          : ""
+      }
+    </section>
   `;
 }
 
@@ -2794,13 +3279,13 @@ function attachEvents() {
     if (action === "open-chatgpt") openChatGPTWindow();
     if (action === "focus-chatgpt") handleFocusChatGPTWindow();
     if (action === "close-chatgpt-sidebar") closeChatGPTSidebar();
-    if (action === "process-ai-workflow-result") processAIWorkflowResult();
+    if (action === "process-ai-workflow-result") await processAIWorkflowResult();
     if (action === "toggle-dashboard-import") {
       dashboardImportOpen = !dashboardImportOpen;
       render();
     }
     if (action === "lane-clear") clearImportLane(target.dataset.lane);
-    if (action === "lane-process") processImportLane(target.dataset.lane);
+    if (action === "lane-process") await processImportLane(target.dataset.lane);
     if (action === "capture-selection") captureLearningSelection();
     if (action === "remember-correction") handleRememberCorrection(id);
     if (action === "prev-week") {
@@ -2884,9 +3369,10 @@ function attachEvents() {
       saveState();
       render();
     }
-    if (action === "create-visit") createVisitFromInbox(id, target.dataset.schedule || null);
-    if (action === "link-transcript-visit") linkTranscriptToVisit(id, target.dataset.visit);
+    if (action === "create-visit") await createVisitFromInbox(id, target.dataset.schedule || null);
+    if (action === "link-transcript-visit") await linkTranscriptToVisit(id, target.dataset.visit);
     if (action === "link-chart-cleanup-visit") linkChartCleanupToVisit(id, target.dataset.visit);
+    if (action === "generate-ai-chart") await generateAIChartForVisit(id);
     if (action === "confirm-schedule-candidate") confirmScheduleCandidate(id);
     if (action === "discard-schedule-candidate") discardScheduleCandidate(id);
     if (action === "create-initial-visit") createInitialVisitFromDoctorChart(id);
@@ -2930,6 +3416,9 @@ function attachEvents() {
     if (action === "delete-visit") {
       deleteVisitRecord(id);
     }
+    if (action === "add-pivot-log") {
+      addPivotLog(id);
+    }
     if (action === "new-manual-visit") {
       const patient = state.patients.find((entry) => entry.id === selectedPatientId) || state.patients[0];
       if (!patient) return;
@@ -2972,6 +3461,12 @@ function attachEvents() {
   });
 
   document.body.addEventListener("paste", handleImportLanePaste);
+  document.body.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (target?.dataset?.action === "lane-audio-file") {
+      await handleLaneAudioFileChange(target);
+    }
+  });
 
   document.body.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -3070,6 +3565,59 @@ async function handleImportLanePaste(event) {
   }
 }
 
+async function handleLaneAudioFileChange(input) {
+  const laneKey = input.dataset.lane;
+  const lane = importLanes[laneKey];
+  const file = input.files?.[0];
+  if (!lane || !file) return;
+
+  updateImportLaneFromDOM(laneKey);
+  if (!supabaseSession?.access_token) {
+    toast("오디오 전사는 Supabase 로그인이 필요합니다.");
+    input.value = "";
+    return;
+  }
+  if (file.size > 24 * 1024 * 1024) {
+    toast("오디오 파일은 24MB 이하로 잘라서 넣어 주세요.");
+    input.value = "";
+    return;
+  }
+
+  lane.audioName = file.name || "audio_transcript";
+  lane.audioRecordedTime = file.lastModified ? new Date(file.lastModified).toTimeString().slice(0, 5) : nowTime();
+  lane.ocrStatus = "오디오 전사 중...";
+  render();
+  await transcribeAudioFileLane(laneKey, file);
+}
+
+async function transcribeAudioFileLane(laneKey, file) {
+  const lane = importLanes[laneKey];
+  if (!lane) return;
+
+  try {
+    const audioDataUrl = await fileToDataURL(file);
+    const result = await supabaseRequest(TRANSCRIBE_AUDIO_FUNCTION_PATH, {
+      method: "POST",
+      body: {
+        audioDataUrl,
+        fileName: file.name || "audio.m4a",
+        language: "ko",
+      },
+    });
+    const transcript = String(result?.text || "").trim();
+    if (!transcript) throw new Error("전사 결과가 비어 있습니다.");
+
+    lane.text = [lane.text, transcript].filter(Boolean).join("\n").trim();
+    lane.ocrStatus = "전사 완료, 차트 반영 중";
+    render();
+    await processImportLane(laneKey, { auto: true, skipDomUpdate: true });
+  } catch (error) {
+    lane.ocrStatus = `오디오 전사 실패: ${error.message}`;
+    toast(`오디오 전사 실패: ${error.message}`);
+    render();
+  }
+}
+
 function clearImportLane(laneKey) {
   const lane = importLanes[laneKey];
   if (!lane) return;
@@ -3105,7 +3653,7 @@ async function analyzeScheduleImageLane(laneKey) {
     lane.text = text;
     lane.ocrStatus = "AI 분석 완료, 스케줄 반영 중";
     render();
-    processImportLane(laneKey, { auto: true, skipDomUpdate: true });
+    await processImportLane(laneKey, { auto: true, skipDomUpdate: true });
   } catch (error) {
     lane.ocrStatus = `AI 분석 실패: ${error.message}. 외부 AI 결과 텍스트를 붙여넣어 주세요.`;
     toast(`스케줄 이미지 분석 실패: ${error.message}`);
@@ -3173,7 +3721,7 @@ async function runLaneOcr(laneKey) {
     }
     lane.ocrStatus = "OCR 완료, 자동 반영 중";
     render();
-    processImportLane(laneKey, { auto: true });
+    await processImportLane(laneKey, { auto: true });
   } catch (error) {
     lane.ocrStatus = "OCR 실패. 텍스트를 붙여넣어 주세요.";
     toast(`OCR 실패: ${error.message}`);
@@ -3730,7 +4278,7 @@ function closeChatGPTSidebar() {
   setChatGPTWorkflowOpen(false);
 }
 
-function processAIWorkflowResult() {
+async function processAIWorkflowResult() {
   const field = document.getElementById("aiWorkflowResult");
   const text = field?.value.trim() || "";
   if (!text) {
@@ -3751,7 +4299,7 @@ function processAIWorkflowResult() {
   const lane = importLanes[target];
   lane.text = text;
   lane.sourceFile = "chatgpt_result";
-  processImportLane(target, { skipDomUpdate: true });
+  await processImportLane(target, { skipDomUpdate: true });
   if (field) field.value = "";
 }
 
@@ -3834,6 +4382,13 @@ function makeTranscriptCleanupInboxItem(lane) {
   };
 }
 
+function isChartSectionText(text) {
+  const sectionNames = parseSectionedText(text).map((section) => section.name);
+  return ["SUBJECTIVE", "OBJECTIVE", "TREATMENT", "HOMEWORK", "ASSESSMENT", "NEXT_CHECK", "SPECIAL_NOTES"].some((name) =>
+    sectionNames.includes(name),
+  );
+}
+
 function makeDoctorChartInboxItem(lane) {
   const sections = parseSectionedText(lane.text);
   const initialChart = getSectionText(sections, ["INITIAL_CHART"]);
@@ -3901,7 +4456,7 @@ function hasUncertainText(value) {
   return /\?|\bunclear\b|불확실|확인/i.test(String(value || ""));
 }
 
-function processImportLane(laneKey, options = {}) {
+async function processImportLane(laneKey, options = {}) {
   const auto = Boolean(options.auto);
   if (!options.skipDomUpdate) updateAllImportLanesFromDOM();
   const lane = importLanes[laneKey];
@@ -3972,9 +4527,40 @@ function processImportLane(laneKey, options = {}) {
 
   if (lane.kind === "transcript_cleanup") {
     if (!lane.text.trim()) {
-      toast("정리된 transcript section 텍스트가 필요합니다.");
+      toast("Whisper 전사 또는 정리된 chart section 텍스트가 필요합니다.");
       lane.ocrStatus = "반영 실패, 텍스트 확인 필요";
       render();
+      return;
+    }
+
+    if (!isChartSectionText(lane.text)) {
+      const item = parseTranscriptMeta(
+        lane.text,
+        lane.audioName || "pasted_whisper_transcript.txt",
+        lane.date || todayISO(),
+        lane.audioRecordedTime || nowTime(),
+      );
+      item.patientHint = lane.patientHint || item.patientHint;
+      state.rawInbox.unshift(item);
+      const linked = autoLinkTranscriptInboxItem(item);
+      const linkedVisitId = item.matchedVisitId;
+      lane.text = "";
+      lane.patientHint = "";
+      lane.imageName = "";
+      lane.imagePreview = "";
+      lane.audioName = "";
+      lane.audioRecordedTime = "";
+      lane.ocrStatus = "";
+      saveState();
+      if (linked && linkedVisitId && supabaseSession?.access_token) {
+        await generateAIChartForVisit(linkedVisitId, { silent: true });
+      }
+      toast(linked ? "Transcript를 Visit에 연결하고 AI 차트 초안을 준비했습니다." : "Transcript를 AI Inbox에 추가했습니다.");
+      if (linked && linkedVisitId) {
+        selectedVisitId = linkedVisitId;
+        setView("visits");
+      } else if (currentView !== "inbox") setView("inbox");
+      else render();
       return;
     }
 
@@ -3984,6 +4570,8 @@ function processImportLane(laneKey, options = {}) {
     lane.patientHint = "";
     lane.imageName = "";
     lane.imagePreview = "";
+    lane.audioName = "";
+    lane.audioRecordedTime = "";
     lane.ocrStatus = "";
     saveState();
     toast("정리된 차트 후보를 Inbox에 만들었습니다.");
@@ -4037,8 +4625,11 @@ async function handleTranscriptForm(form) {
   state.rawInbox.unshift(item);
   const linked = autoLinkTranscriptInboxItem(item);
   saveState();
+  if (linked && item.matchedVisitId && supabaseSession?.access_token) {
+    await generateAIChartForVisit(item.matchedVisitId, { silent: true });
+  }
   form.reset();
-  toast(linked ? "Transcript를 기존 Visit에 자동 연결했습니다." : "Transcript를 Inbox에 추가했습니다.");
+  toast(linked ? "Transcript를 기존 Visit에 자동 연결하고 차트 초안을 준비했습니다." : "Transcript를 Inbox에 추가했습니다.");
   render();
 }
 
@@ -4122,6 +4713,7 @@ function handleVisitForm(form) {
   visit.time = form.querySelector("#visitTime").value;
   visit.durationMinutes = normalizeTreatmentMinutes(form.querySelector("#visitDuration")?.value || visit.durationMinutes || "");
   visit.summary = form.querySelector("#visitSummary").value.trim();
+  visit.clinicalChart = readClinicalChartForm(form, visit);
   visit.signals = form
     .querySelector("#visitSignals")
     .value.split(/\n+/)
@@ -4150,6 +4742,69 @@ function handleVisitForm(form) {
   saveState();
   toast("방문 기록을 저장했습니다.");
   render();
+}
+
+function readClinicalChartForm(form, visit) {
+  const planLines = getTextareaLines(form, "#clinicalPlanGoal");
+  const nextLines = getTextareaLines(form, "#clinicalNext");
+  const nextQuestions = nextLines.filter((line) => !line.toLowerCase().startsWith("context:"));
+  const nextContext = nextLines
+    .filter((line) => line.toLowerCase().startsWith("context:"))
+    .map((line) => line.replace(/^context:\s*/i, "").trim())
+    .filter(Boolean);
+  const previous = normalizeClinicalChart(visit.clinicalChart || {}, visit);
+
+  return normalizeClinicalChart({
+    ...previous,
+    doctorNote: form.querySelector("#clinicalDoctorNote")?.value.trim() || "",
+    patientWords: form.querySelector("#clinicalPatientWords")?.value.trim() || "",
+    ptAssessment: {
+      redFlag: form.querySelector("#clinicalRedFlag")?.value || "",
+      specificity: form.querySelector("#clinicalSpecificity")?.value || "",
+      painType: form.querySelector("#clinicalPainType")?.value || "",
+      h1: form.querySelector("#clinicalH1")?.value.trim() || "",
+      h2: form.querySelector("#clinicalH2")?.value.trim() || "",
+      signal: form.querySelector("#clinicalSignalFocus")?.value.trim() || "",
+      contextVariables: getTextareaLines(form, "#clinicalContextVariables"),
+    },
+    plan: {
+      goal: planLines[0] || "",
+      frequency: planLines.slice(1).join("\n"),
+      todayTreatment: form.querySelector("#visitTreatment")?.value.trim() || previous.plan.todayTreatment,
+      hep: form.querySelector("#visitHomework")?.value.trim() || previous.plan.hep,
+    },
+    next: {
+      questions: nextQuestions,
+      contextVariables: nextContext,
+      noise: getTextareaLines(form, "#clinicalNoise"),
+    },
+    judgment: {
+      direction: form.querySelector("#clinicalJudgmentDirection")?.value || "",
+      reason: form.querySelector("#clinicalJudgmentReason")?.value.trim() || "",
+    },
+    signalTrackingRows: parseTrackingRows(form.querySelector("#clinicalTrackingRows")?.value || ""),
+    pivotLog: previous.pivotLog,
+  }, visit);
+}
+
+function getTextareaLines(form, selector) {
+  return String(form.querySelector(selector)?.value || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function parseTrackingRows(value) {
+  return String(value || "")
+    .split(/\n+/)
+    .map((line) => {
+      const [name, ...rest] = line.split(":");
+      return normalizeTrackingRow({
+        name: name?.trim() || "",
+        value: rest.join(":").trim() || "mentioned",
+      });
+    })
+    .filter((item) => item.name);
 }
 
 function handleTermForm(form) {
@@ -4361,17 +5016,26 @@ async function importSupabaseInbox(options = {}) {
 
     let added = 0;
     let linked = 0;
+    const linkedVisitIds = [];
     rows.reverse().forEach((row) => {
       const exists = state.rawInbox.some((entry) => entry.cloudId === row.id || entry.localId === row.local_id);
       if (exists) return;
       const item = mapCloudInboxRow(row);
       state.rawInbox.unshift(item);
-      if (autoLinkTranscriptInboxItem(item)) linked += 1;
+      if (autoLinkTranscriptInboxItem(item)) {
+        linked += 1;
+        if (item.matchedVisitId) linkedVisitIds.push(item.matchedVisitId);
+      }
       added += 1;
     });
 
     if (added > 0) {
       saveState();
+      if (linkedVisitIds.length && supabaseSession?.access_token) {
+        for (const visitId of [...new Set(linkedVisitIds)]) {
+          await generateAIChartForVisit(visitId, { silent: true });
+        }
+      }
       render();
       if (!silent) toast(`클라우드 Inbox ${added}개를 가져왔습니다${linked ? ` · ${linked}개 자동 연결` : ""}.`);
     } else if (!silent) {

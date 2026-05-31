@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=20260530-api-first-schedule" />
+    <link rel="stylesheet" href="./styles.css?v=20260531-api-workbench" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
   </head>
   <body>
@@ -33,7 +33,7 @@
           <nav class="nav" aria-label="주요 화면">
             <span class="sidebar-section-title">메뉴</span>
             <button class="nav-item active" data-view="dashboard" data-short="Sc" title="Schedule"><i class="ti ti-calendar"></i><span>Schedule</span></button>
-            <button class="nav-item" data-view="inbox" data-short="Ib" title="Inbox"><i class="ti ti-inbox"></i><span>Inbox</span></button>
+            <button class="nav-item" data-view="inbox" data-short="AI" title="AI Inbox"><i class="ti ti-inbox"></i><span>AI Inbox</span></button>
             <button class="nav-item" data-view="patients" data-short="Pt" title="Patients"><i class="ti ti-users"></i><span>Patients</span></button>
             <button class="nav-item" data-view="visits" data-short="Sx" title="Sessions"><i class="ti ti-file-text"></i><span>Sessions</span></button>
             <button class="nav-item" data-view="terms" data-short="Is" title="Insights"><i class="ti ti-chart-bar"></i><span>Insights</span></button>
@@ -41,14 +41,14 @@
           </nav>
 
           <div class="sidebar-tools">
-            <span class="sidebar-section-title">외부 AI</span>
-            <button class="sidebar-action tool-item" data-action="open-chatgpt" data-short="AI" title="ChatGPT 열기"><i class="ti ti-sparkles"></i><span>ChatGPT 열기</span></button>
+            <span class="sidebar-section-title">Fallback</span>
+            <button class="sidebar-action tool-item" data-action="open-chatgpt" data-short="Fb" title="수동 ChatGPT"><i class="ti ti-sparkles"></i><span>수동 ChatGPT</span></button>
           </div>
         </div>
 
-        <section class="ai-sidebar-panel" aria-label="외부 AI 워크플로우">
+        <section class="ai-sidebar-panel" aria-label="수동 fallback 워크플로우">
           <div class="ai-sidebar-header">
-            <h2>외부 AI 워크플로우</h2>
+            <h2>수동 fallback</h2>
             <div class="ai-sidebar-header-actions">
               <button class="ai-mini-button" data-action="focus-chatgpt">↗ 앞으로 가져오기</button>
               <button class="ai-icon-button" data-action="close-chatgpt-sidebar" aria-label="외부 AI 패널 닫기">×</button>
@@ -56,14 +56,14 @@
           </div>
 
           <div class="ai-sidebar-section">
-            <h3>1. 프롬프트 복사</h3>
+            <h3>API가 안 될 때만 사용</h3>
             <button class="ai-copy-button" data-action="copy-import-prompt" data-prompt="scheduleCombined">스케줄 OCR 프롬프트 복사</button>
             <button class="ai-copy-button" data-action="copy-import-prompt" data-prompt="transcriptCleanup">Transcript 정리 프롬프트 복사</button>
             <button class="ai-copy-button" data-action="copy-import-prompt" data-prompt="doctorInitialChart">초진 차트 OCR 프롬프트 복사</button>
           </div>
 
           <div class="ai-sidebar-section grow">
-            <h3>2. 결과 붙여넣기</h3>
+            <h3>결과 붙여넣기</h3>
             <button class="primary-button" data-action="process-ai-workflow-result">Apply Import</button>
             <textarea id="aiWorkflowResult" placeholder="[VISITS] 또는 [SUBJECTIVE] 또는 [INITIAL_CHART] 결과를 붙여넣기"></textarea>
           </div>
@@ -109,7 +109,7 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="./config.public.js"></script>
     <script src="./prompt-templates.js?v=20260516-schedule-ocr-workday-prompt"></script>
-    <script type="module" src="./app.js?v=20260530-api-first-schedule"></script>
+    <script type="module" src="./app.js?v=20260531-api-workbench"></script>
     <script>
       (function () {
         var sidebar = document.querySelector('.sidebar');
