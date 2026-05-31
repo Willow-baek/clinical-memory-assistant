@@ -22,3 +22,6 @@ dist/
 build/
 .vite/
 .next/
+
+# Supabase local link/cache state
+supabase/.temp/

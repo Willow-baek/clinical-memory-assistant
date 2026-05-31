@@ -44,6 +44,13 @@ Optional model override:
 npx supabase secrets set OPENAI_SCHEDULE_MODEL=gpt-4.1-mini --project-ref mwwbqzdpnvnrvcdfxflh
 ```
 
+If the CLI reports an access-token format error only for `secrets`, set the same values in the Dashboard instead:
+
+1. Open Supabase Dashboard for `clinical-memory-assistant`.
+2. Go to `Edge Functions` -> `Secrets`.
+3. Add `OPENAI_API_KEY`.
+4. Optionally add `OPENAI_SCHEDULE_MODEL` with `gpt-4.1-mini`.
+
 ## Deploy
 
 From the project folder:
